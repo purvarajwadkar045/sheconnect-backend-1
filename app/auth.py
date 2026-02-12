@@ -70,7 +70,6 @@ def verify_otp_token(token: str):
     except JWTError:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP token")
 
-
 # ================= SIGNUP =================
 @router.post("/signup")
 async def signup(
@@ -78,19 +77,23 @@ async def signup(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    # ✅ Check allowed email
-    if user.email_id.lower() not in ALLOWED_EMAILS:
+    # ✅ Check if email exists in imported list
+    existing_user = db.query(User).filter(
+        User.email_id == user.email_id.lower()
+    ).first()
+
+    if not existing_user:
         raise HTTPException(status_code=403, detail="Email not allowed")
+
+    # ✅ Check if already registered
+    if existing_user.is_active:
+        raise HTTPException(status_code=400, detail="User already registered")
 
     # ✅ Check password match
     if user.password != user.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # ✅ Check duplicate email
-    if db.query(User).filter(User.email_id == user.email_id).first():
-        raise HTTPException(status_code=400, detail="Email already exists")
-
-    # ✅ Validate college exists (FIXED HERE)
+    # ✅ Validate college exists
     college = db.query(College).filter(
         College.college_id == user.college_id
     ).first()
@@ -98,21 +101,17 @@ async def signup(
     if not college:
         raise HTTPException(status_code=400, detail="Invalid college")
 
-    # ✅ Create new user
-    new_user = User(
-        name=user.name,
-        email_id=user.email_id,
-        phone_no=user.phone_no,
-        password=hash_password(user.password),
-        college_id=user.college_id,
-        is_verified=False
-    )
+    # ✅ Update existing record (instead of creating new)
+    existing_user.name = user.name
+    existing_user.phone_no = user.phone_no
+    existing_user.password = hash_password(user.password)
+    existing_user.college_id = user.college_id
+    existing_user.is_verified = False
+    existing_user.is_active = True
 
-    db.add(new_user)
     db.commit()
-    db.refresh(new_user)   # good practice
+    db.refresh(existing_user)
 
-    # ✅ Generate OTP
     otp = generate_otp()
     otp_token = create_otp_token(user.email_id, otp, "signup")
 
@@ -125,7 +124,6 @@ async def signup(
         "otp_token": otp_token,
         "anonymous_id": anonymous_id
     }
-
 
 # ================= VERIFY SIGNUP OTP =================
 @router.post("/verify-otp")
@@ -156,7 +154,6 @@ def verify_otp(
 
     return {"message": "Email verified successfully"}
 
-
 # ================= LOGIN =================
 @router.post("/login")
 async def login(
@@ -164,15 +161,32 @@ async def login(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    db_user = db.query(User).filter(User.email_id == user.email_id).first()
+    db_user = db.query(User).filter(
+        User.email_id == user.email_id.lower()
+    ).first()
 
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not verify_password(user.password, db_user.password):
-        raise HTTPException(status_code=400, detail="Invalid credentials")
+   
+    if not db_user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Please complete signup first"
+        )
 
-    # If user not verified → send OTP again
+
+    if not db_user.password:
+        raise HTTPException(
+            status_code=400,
+            detail="User has not set password"
+        )
+
+
+    if not verify_password(user.password, db_user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
     if not db_user.is_verified:
         otp = generate_otp()
         otp_token = create_otp_token(db_user.email_id, otp, "signup")
@@ -185,7 +199,7 @@ async def login(
             "first_login": True
         }
 
-    # Create JWT with user_id
+
     access_token = create_jwt_token(db_user.user_id)
 
     return {
@@ -299,3 +313,8 @@ async def resend_otp(
         "message": "OTP resent successfully",
         "otp_token": otp_token
     }
+
+@router.get("/colleges")
+def get_colleges(db: Session = Depends(get_db)):
+    colleges = db.query(College).all()
+    return colleges
