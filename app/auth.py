@@ -7,7 +7,7 @@ import os
 import uuid
 from app.security import hash_password, verify_password
 from app.database import SessionLocal
-from app.models import User
+from app.models import User,College
 from app.schemas import UserSignup, Login
 from app.email_utils import send_otp_email, load_allowed_emails
 
@@ -78,32 +78,48 @@ async def signup(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    # ✅ Check allowed email
     if user.email_id.lower() not in ALLOWED_EMAILS:
         raise HTTPException(status_code=403, detail="Email not allowed")
 
+    # ✅ Check password match
     if user.password != user.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
+    # ✅ Check duplicate email
     if db.query(User).filter(User.email_id == user.email_id).first():
         raise HTTPException(status_code=400, detail="Email already exists")
 
+    # ✅ Validate college exists (FIXED HERE)
+    college = db.query(College).filter(
+        College.college_id == user.college_id
+    ).first()
+
+    if not college:
+        raise HTTPException(status_code=400, detail="Invalid college")
+
+    # ✅ Create new user
     new_user = User(
         name=user.name,
         email_id=user.email_id,
         phone_no=user.phone_no,
         password=hash_password(user.password),
-        college_name=user.college_name,
+        college_id=user.college_id,
         is_verified=False
     )
 
     db.add(new_user)
     db.commit()
+    db.refresh(new_user)   # good practice
 
+    # ✅ Generate OTP
     otp = generate_otp()
     otp_token = create_otp_token(user.email_id, otp, "signup")
 
     background_tasks.add_task(send_otp_email, user.email_id, otp)
+
     anonymous_id = str(uuid.uuid4())[:5]
+
     return {
         "message": "Signup successful. OTP sent to email.",
         "otp_token": otp_token,

@@ -15,7 +15,7 @@ class UserSignup(BaseModel):
     phone_no: str
     password: str
     confirm_password: str
-    college_name: str
+    college_id: int
     emergency_contacts: List[EmergencyContactSchema]
 
 class Login(BaseModel):

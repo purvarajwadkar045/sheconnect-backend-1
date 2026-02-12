@@ -5,25 +5,41 @@ from sqlalchemy.orm import relationship
 
 class User(Base):
     __tablename__ = "users"
+
     user_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    email_id = Column(String, unique=True, index=True)
+    name = Column(String, nullable=False)
+    email_id = Column(String, unique=True, index=True, nullable=False)
     phone_no = Column(String)
-    password = Column(String)
-    college_name = Column(String)
+    password = Column(String, nullable=False)
+
+    college_id = Column(
+        Integer,
+        ForeignKey("colleges.college_id"),
+        nullable=False
+    )
+
     anonymous_id = Column(String)
+
     is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
-    is_verified = Column(Boolean, default=False)
+
     travels = relationship("Travel", back_populates="user")
     blogs = relationship("Blog", back_populates="user")
 
+    college = relationship("College", back_populates="users")
+
 class College(Base):
     __tablename__ = "colleges"
+
     college_id = Column(Integer, primary_key=True, index=True)
-    college_name = Column(String, nullable=False)
+    college_name = Column(String(255), unique=True, nullable=False)
+
+    users = relationship("User", back_populates="college")
+
 
 class EmergencyContact(Base):
     __tablename__ = "emergency_contacts"
