@@ -92,7 +92,7 @@ async def signup(
         email_id=user.email_id,
         phone_no=user.phone_no,
         password=hash_password(user.password),
-        college_id=user.college_id,
+        college_name=user.college_name,
         is_verified=False
     )
 

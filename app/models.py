@@ -10,7 +10,7 @@ class User(Base):
     email_id = Column(String, unique=True, index=True)
     phone_no = Column(String)
     password = Column(String)
-    college_id = Column(Integer, ForeignKey("colleges.college_id"))
+    college_name = Column(String)
     anonymous_id = Column(String)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
