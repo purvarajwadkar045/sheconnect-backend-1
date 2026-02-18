@@ -12,7 +12,7 @@ from typing import List
 
 router = APIRouter(prefix="/travel", tags=["Travel"])
 
-@router.get("/trips", response_model=List[TravelResponse])
+@router.get("/trips", response_model=List[TravelResponse])#Returns all trips created by the logged-in user.
 def get_my_trips(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -20,13 +20,13 @@ def get_my_trips(
     trips = db.query(Travel).filter(Travel.user_id == current_user.user_id).order_by(desc(Travel.created_at)).all()
     return trips
 
-@router.post("/trips")
+@router.post("/trips")#Creates a new trip.
 async def create_trip(
     travel: TravelCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # 5.1 Input Validation
+    
     if not (-90 <= travel.start.lat <= 90) or not (-180 <= travel.start.lng <= 180):
         raise HTTPException(status_code=400, detail="Invalid start coordinates")
     
@@ -53,8 +53,6 @@ async def create_trip(
     db.commit()
     db.refresh(new_travel)
 
-    # 6. Step 5 - Route generation using OSRM
-    # BE -> OSRM
     osrm_url = f"http://router.project-osrm.org/route/v1/driving/{travel.start.lng},{travel.start.lat};{travel.end.lng},{travel.end.lat}?overview=full&geometries=geojson"
     
     try:
@@ -66,7 +64,6 @@ async def create_trip(
                     route_data = data["routes"][0]
                     geometry_json = json.dumps(route_data["geometry"])
                     
-                    # 6.1 Store Route in DB
                     new_route = TravelRoute(
                         travel_id=new_travel.travel_id,
                         route_geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_json), 4326),
@@ -77,11 +74,10 @@ async def create_trip(
                     db.commit()
     except Exception as e:
         print(f"Error fetching/storing route: {e}")
-        # Proceeding without route, though matching will be limited
 
     return {"message": "Trip created successfully"}
 
-@router.get("/trips/{trip_id}/matches")
+@router.get("/trips/{trip_id}/matches")#Finds matching trips for a given trip.
 def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
 
     my_trip = db.query(Travel).filter(
@@ -134,22 +130,22 @@ def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
         ]
     }
 
-@router.post("/request", response_model=RequestResponse)
+@router.post("/request", response_model=RequestResponse)#Sends a travel request to another user.
 def send_trip_request(
     request_data: TripRequestCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # 1. Check if the target trip exists
+   
     target_trip = db.query(Travel).filter(Travel.travel_id == request_data.trip_id).first()
     if not target_trip:
         raise HTTPException(status_code=404, detail="Trip not found")
     
-    # 2. Prevent sending request to oneself
+    
     if target_trip.user_id == current_user.user_id:
         raise HTTPException(status_code=400, detail="Cannot send request to yourself")
 
-    # 3. Check if a pending request already exists
+    
     existing_request = db.query(Request).filter(
         Request.travel_id == request_data.trip_id,
         Request.sent_by == current_user.user_id,
@@ -160,7 +156,7 @@ def send_trip_request(
     if existing_request:
         raise HTTPException(status_code=400, detail="Request already pending")
 
-    # 4. Create Request
+    
     new_request = Request(
         travel_id=request_data.trip_id,
         sent_by=current_user.user_id,
@@ -173,7 +169,7 @@ def send_trip_request(
     db.refresh(new_request)
     return new_request
 
-@router.get("/requests", response_model=dict[str, List[RequestResponse]])
+@router.get("/requests", response_model=dict[str, List[RequestResponse]])#Requests you received Requests you sent
 def get_my_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -186,7 +182,7 @@ def get_my_requests(
         "sent": sent
     }
 
-@router.put("/request/{request_id}")
+@router.put("/request/{request_id}")#Accepts or rejects a request.
 def respond_to_request(
     request_id: int,
     update_data: RequestUpdate,

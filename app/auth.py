@@ -1,87 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from jose import jwt, JWTError
-from datetime import datetime, timedelta
-import random
-import os
 import uuid
 from app.security import hash_password, verify_password
-from app.database import SessionLocal
+from app.database import get_db
 from app.models import User,College
 from app.schemas import UserSignup, Login
 from app.email_utils import send_otp_email, load_allowed_emails
-
-
-# ================= CONFIG =================
-ALGORITHM = "HS256"
-
-SECRET_KEY = os.getenv("SECRET_KEY", "auth-secret")
-OTP_SECRET_KEY = os.getenv("OTP_SECRET_KEY", "otp-secret")
-
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
-OTP_EXPIRE_MINUTES = 10
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+from app.auth_utils import (
+    validate_password,
+    generate_otp,
+    create_jwt_token,
+    create_refresh_token,
+    create_otp_token,
+    verify_otp_token
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 ALLOWED_EMAILS = load_allowed_emails("app/female_emails.csv")
-
-
-# ================= DB =================
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-# ================= HELPERS =================
-def generate_otp():
-    return str(random.randint(100000, 999999))
-
-
-def create_jwt_token(user_id: int):
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    payload = {
-        "user_id": user_id,
-        "exp": expire,
-        "type": "access"
-    }
-
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def create_refresh_token(user_id: int):
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-
-    payload = {
-        "user_id": user_id,
-        "exp": expire,
-        "type": "refresh"
-    }
-
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def create_otp_token(email: str, otp: str, purpose: str):
-    expire = datetime.utcnow() + timedelta(minutes=OTP_EXPIRE_MINUTES)
-
-    payload = {
-        "sub": email,
-        "otp": otp,
-        "purpose": purpose,
-        "exp": expire
-    }
-
-    return jwt.encode(payload, OTP_SECRET_KEY, algorithm=ALGORITHM)
-
-
-def verify_otp_token(token: str):
-    try:
-        return jwt.decode(token, OTP_SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP token")
 
 # ================= SIGNUP =================
 @router.post("/signup")
@@ -90,7 +25,6 @@ async def signup(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    # ✅ Check if email exists in imported list
     existing_user = db.query(User).filter(
         User.email_id == user.email_id.lower()
     ).first()
@@ -98,15 +32,29 @@ async def signup(
     if not existing_user:
         raise HTTPException(status_code=403, detail="Email not allowed")
 
-    # ✅ Check if already registered
     if existing_user.is_active:
         raise HTTPException(status_code=400, detail="User already registered")
 
-    # ✅ Check password match
+
+    if user.phone_no:
+        phone_exists = db.query(User).filter(User.phone_no == user.phone_no).first()
+        if phone_exists and phone_exists.user_id != existing_user.user_id:
+            raise HTTPException(status_code=400, detail="Phone number already registered by another user.")
+
+    
+    if user.emergency_contacts:
+        e_numbers = [contact.phone_no for contact in user.emergency_contacts]
+        if len(e_numbers) != len(set(e_numbers)):
+            raise HTTPException(status_code=400, detail="Emergency contact numbers cannot be duplicates.")
+        
     if user.password != user.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # ✅ Validate college exists
+    is_valid, message = validate_password(user.password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=message)
+
+    
     college = db.query(College).filter(
         College.college_id == user.college_id
     ).first()
@@ -115,7 +63,6 @@ async def signup(
         raise HTTPException(status_code=400, detail="Invalid college")
 
     anonymous_id = str(uuid.uuid4())[:5]
-    # ✅ Update existing record (instead of creating new)
     existing_user.name = user.name
     existing_user.phone_no = user.phone_no
     existing_user.password = hash_password(user.password)

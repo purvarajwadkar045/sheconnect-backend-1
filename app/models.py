@@ -3,36 +3,7 @@ from datetime import datetime
 from app.database import Base
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geography
-'''
-class User(Base):
-    __tablename__ = "users"
 
-    user_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email_id = Column(String, unique=True, index=True, nullable=False)
-    phone_no = Column(String)
-    password = Column(String, nullable=False)
-
-    college_id = Column(
-        Integer,
-        ForeignKey("colleges.college_id"),
-        nullable=False
-    )
-
-    anonymous_id = Column(String)
-
-    is_active = Column(Boolean, default=True)
-    is_verified = Column(Boolean, default=False)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-
-    travels = relationship("Travel", back_populates="user")
-    blogs = relationship("Blog", back_populates="user")
-
-    college = relationship("College", back_populates="users")
-'''
 class College(Base):
     __tablename__ = "colleges"
 
@@ -46,20 +17,20 @@ class User(Base):
 
     user_id = Column(Integer, primary_key=True, index=True)
 
-    name = Column(String, nullable=True)   # changed
+    name = Column(String, nullable=True)   
     email_id = Column(String, unique=True, index=True, nullable=False)
-    phone_no = Column(String, nullable=True)
-    password = Column(String, nullable=True)   # changed
+    phone_no = Column(String, unique=True, nullable=True)
+    password = Column(String, nullable=True)  
 
     college_id = Column(
         Integer,
         ForeignKey("colleges.college_id"),
-        nullable=True   # changed
+        nullable=True   
     )
 
     anonymous_id = Column(String)
 
-    is_active = Column(Boolean, default=False)  # changed default
+    is_active = Column(Boolean, default=False) 
     is_verified = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -89,7 +60,7 @@ class Travel(Base):
 
     travel_id = Column(Integer, primary_key=True, index=True)
 
-    # Foreign Key
+    
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
 
     start_label = Column(String, nullable=False)
@@ -121,7 +92,6 @@ class Blog(Base):
 
     blog_id = Column(Integer, primary_key=True, index=True)
 
-    # Foreign Key
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
 
     content = Column(Text, nullable=False)
@@ -132,7 +102,7 @@ class Blog(Base):
     is_active = Column(Boolean, default=True)
     deleted_at = Column(DateTime, nullable=True)
 
-    # Relationship
+    
     user = relationship("User", back_populates="blogs")
 
 class TravelRoute(Base):
@@ -141,7 +111,7 @@ class TravelRoute(Base):
     route_id = Column(Integer, primary_key=True, index=True)
     travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
 
-    # Stores the full path geometry
+   
     route_geom = Column(Geography(geometry_type='LINESTRING', srid=4326))
 
     distance_meters = Column(Float)
@@ -170,7 +140,7 @@ class Request(Base):
     deleted_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
 
-    # Relationships
+   
     travel = relationship("Travel")
     sender = relationship("User", foreign_keys=[sent_by])
     receiver = relationship("User", foreign_keys=[sent_to])
@@ -193,7 +163,7 @@ class Chat(Base):
 
     is_active = Column(Boolean, default=True)
 
-    # Relationships
+    
     request = relationship("Request")
     sender = relationship("User", foreign_keys=[sender_id])
     receiver = relationship("User", foreign_keys=[receiver_id])
