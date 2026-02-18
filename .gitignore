@@ -1,5 +1,18 @@
-venv/
-__pycache__/
-*.pyc
-.vscode/
+# Environment variables
 .env
+
+# Virtual environment
+.venv
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE configuration
+.vscode/
+.idea/
+
+# Data files - contains sensitive user emails
+app/*.csv
