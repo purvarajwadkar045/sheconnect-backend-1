@@ -1,8 +1,17 @@
 from pydantic import BaseModel
 from typing import List
-from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
+from enum import Enum
+
+class TransportMode(str, Enum):
+    CAR = "car"
+    BUS = "bus"
+    TRAIN = "train"
+    UBER_CAB = "uber/cab"
+    AUTO_RICKSHAW = "auto-rickshaw"
+    METRO = "metro"
+
 class EmergencyContactSchema(BaseModel):
     emergency_name: str
     phone_no: str
@@ -37,10 +46,44 @@ class ResetPassword(BaseModel):
     new_password: str
     confirm_password: str
 
+class LocationInput(BaseModel):
+    lat: float
+    lng: float
+    label: str
 
 class TravelCreate(BaseModel):
-    start_location: str
-    end_location: str
+    start: LocationInput
+    end: LocationInput
+    start_time: datetime
+    time_flex_minutes: int
+    transport_mode: TransportMode
+    vehicle_no: Optional[str] = None
+
+class TravelResponse(BaseModel):
+    travel_id: int
+    start_label: str
+    end_label: str
     travel_date: datetime
     mode_of_transport: str
-    vehicle_no: Optional[str] = None    
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class TripRequestCreate(BaseModel):
+    trip_id: int
+
+class RequestUpdate(BaseModel):
+    status: str
+
+class RequestResponse(BaseModel):
+    request_id: int
+    travel_id: int
+    sent_by: int
+    sent_to: int
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

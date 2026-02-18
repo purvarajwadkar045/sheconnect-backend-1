@@ -1,18 +1,28 @@
 import csv
-import csv
+import os
 from app.database import SessionLocal
 from app.models import User
 def import_emails(csv_file_path):
     db = SessionLocal()
 
     try:
-        with open(csv_file_path, newline='', encoding="utf-8") as file:
+        if not os.path.exists(csv_file_path):
+            print(f"Error: File not found at {csv_file_path}")
+            return
+
+        with open(csv_file_path, newline='', encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
+            
+            # Ensure header exists (stripping whitespace from header names)
+            reader.fieldnames = [name.strip() for name in reader.fieldnames] if reader.fieldnames else []
+            if "email" not in reader.fieldnames:
+                print(f"Error: CSV must contain an 'email' column. Found: {reader.fieldnames}")
+                return
 
             count = 0
 
             for row in reader:
-                email = row["email"].strip().lower()
+                email = (row.get("email") or "").strip().lower()
 
                 if not email:
                     continue
@@ -20,7 +30,6 @@ def import_emails(csv_file_path):
                 existing = db.query(User).filter(User.email_id == email).first()
 
                 if existing:
-                    print(f"Skipping {email} (already exists)")
                     continue
 
                 new_user = User(
@@ -32,7 +41,6 @@ def import_emails(csv_file_path):
                 count += 1
 
             db.commit()
-            print(f" {count} emails imported successfully!")
 
     except Exception as e:
         db.rollback()
@@ -40,8 +48,3 @@ def import_emails(csv_file_path):
 
     finally:
         db.close()
-
-
-if __name__ == "__main__":
-    import_emails("app/female_emails.csv")
-

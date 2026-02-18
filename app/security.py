@@ -5,8 +5,9 @@ from fastapi import HTTPException, Depends
 from app.models import User
 from app.database import SessionLocal
 from sqlalchemy.orm import Session
+import os
 
-SECRET_KEY = "your_secret"
+SECRET_KEY = os.getenv("SECRET_KEY", "auth-secret")
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -34,7 +35,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     db: Session = SessionLocal()
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
 
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")

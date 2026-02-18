@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+env/
+
+# Environment Variables & Secrets
+.env
+
+# Data files
+app/female_emails.csv
+
+# IDE settings
+.vscode/
+.idea/

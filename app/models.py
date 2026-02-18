@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey,Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Float
 from datetime import datetime
 from app.database import Base
 from sqlalchemy.orm import relationship
+from geoalchemy2 import Geography
 '''
 class User(Base):
     __tablename__ = "users"
@@ -91,15 +92,19 @@ class Travel(Base):
     # Foreign Key
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
 
-    start_location = Column(String, nullable=False)
-    end_location = Column(String, nullable=False)
+    start_label = Column(String, nullable=False)
+    end_label = Column(String, nullable=False)
+
+    start_point = Column(Geography(geometry_type='POINT', srid=4326))
+    end_point = Column(Geography(geometry_type='POINT', srid=4326))
 
     travel_date = Column(DateTime, nullable=False)
     mode_of_transport = Column(String, nullable=False)
+    time_flex_minutes = Column(Integer, default=0)
+    status = Column(String, default="SEARCHING")
 
     emergency_name = Column(String, nullable=True)
     emergency_contact = Column(String, nullable=True)
-
     vehicle_no = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -109,6 +114,7 @@ class Travel(Base):
 
     is_active = Column(Boolean, default=True)
     user = relationship("User", back_populates="travels")
+    route = relationship("TravelRoute", uselist=False, back_populates="travel")
 
 class Blog(Base):
     __tablename__ = "blogs"
@@ -128,6 +134,22 @@ class Blog(Base):
 
     # Relationship
     user = relationship("User", back_populates="blogs")
+
+class TravelRoute(Base):
+    __tablename__ = "travel_routes"
+
+    route_id = Column(Integer, primary_key=True, index=True)
+    travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
+
+    # Stores the full path geometry
+    route_geom = Column(Geography(geometry_type='LINESTRING', srid=4326))
+
+    distance_meters = Column(Float)
+    duration_seconds = Column(Float)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    travel = relationship("Travel", back_populates="route")
 
 class Request(Base):
     __tablename__ = "requests"

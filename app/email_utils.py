@@ -4,7 +4,7 @@ import os
 
 conf = ConnectionConfig(
     MAIL_USERNAME="sheconnect77@gmail.com",
-    MAIL_PASSWORD="kshm xqbr axik ddcb",
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
     MAIL_FROM="sheconnect77@gmail.com",
     MAIL_SERVER="smtp.gmail.com",
     MAIL_PORT=587,
@@ -32,7 +32,7 @@ def load_allowed_emails(file_path="app/female_emails.csv"):
         print(f"File not found: {file_path}")
         return allowed
 
-    with open(file_path, newline="") as csvfile:
+    with open(file_path, newline="", encoding="utf-8-sig") as csvfile:
         reader = csv.DictReader(csvfile)
         if "email" not in reader.fieldnames:
             print(f"CSV header must have 'email'. Found: {reader.fieldnames}")
@@ -41,5 +41,4 @@ def load_allowed_emails(file_path="app/female_emails.csv"):
         for row in reader:
             allowed.add(row["email"].strip().lower())
 
-    print(f"Loaded {len(allowed)} allowed emails")
     return allowed

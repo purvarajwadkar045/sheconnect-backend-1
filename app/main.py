@@ -1,10 +1,16 @@
 from fastapi import FastAPI
 from app.database import Base, engine
-from app.auth import router 
+from app.auth import router as auth_router
 from app.travel import router as travel_router
-import uuid
 from fastapi.middleware.cors import CORSMiddleware
+from app.import_emails import import_emails
+from app.geo import router as geo_router
+from sqlalchemy import text
+from dotenv import load_dotenv
 
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI()
 
@@ -19,14 +25,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# This block ensures the PostGIS extension is enabled in the database.
+# It must run before `Base.metadata.create_all()` to prevent errors.
+with engine.connect() as connection:
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+    connection.commit()
+
 Base.metadata.create_all(bind=engine)
+import_emails("app/female_emails.csv")
 
-app.include_router(router)   
-
-
+app.include_router(auth_router)
 app.include_router(travel_router)
+app.include_router(geo_router)
 
 @app.get("/")
 def home():
     return {"message": "Backend is running"}
-

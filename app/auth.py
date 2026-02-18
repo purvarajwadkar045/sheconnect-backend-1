@@ -20,6 +20,7 @@ OTP_SECRET_KEY = os.getenv("OTP_SECRET_KEY", "otp-secret")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 OTP_EXPIRE_MINUTES = 10
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 ALLOWED_EMAILS = load_allowed_emails("app/female_emails.csv")
@@ -46,6 +47,18 @@ def create_jwt_token(user_id: int):
         "user_id": user_id,
         "exp": expire,
         "type": "access"
+    }
+
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(user_id: int):
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    payload = {
+        "user_id": user_id,
+        "exp": expire,
+        "type": "refresh"
     }
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -101,6 +114,7 @@ async def signup(
     if not college:
         raise HTTPException(status_code=400, detail="Invalid college")
 
+    anonymous_id = str(uuid.uuid4())[:5]
     # ✅ Update existing record (instead of creating new)
     existing_user.name = user.name
     existing_user.phone_no = user.phone_no
@@ -108,16 +122,14 @@ async def signup(
     existing_user.college_id = user.college_id
     existing_user.is_verified = False
     existing_user.is_active = True
+    existing_user.anonymous_id = anonymous_id
 
     db.commit()
     db.refresh(existing_user)
 
     otp = generate_otp()
     otp_token = create_otp_token(user.email_id, otp, "signup")
-
     background_tasks.add_task(send_otp_email, user.email_id, otp)
-
-    anonymous_id = str(uuid.uuid4())[:5]
 
     return {
         "message": "Signup successful. OTP sent to email.",
@@ -201,10 +213,12 @@ async def login(
 
 
     access_token = create_jwt_token(db_user.user_id)
+    refresh_token = create_refresh_token(db_user.user_id)
 
     return {
         "message": "Login successful",
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "first_login": False
     }
