@@ -5,9 +5,9 @@ from fastapi import HTTPException, Depends
 from app.models import User
 from app.database import SessionLocal
 from sqlalchemy.orm import Session
-import os
+from app.config import settings
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

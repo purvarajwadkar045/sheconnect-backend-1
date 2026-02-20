@@ -1,16 +1,16 @@
-import os
 import re
 import random
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from fastapi import HTTPException
 from typing import Tuple
+from app.config import settings
 
 
 ALGORITHM = "HS256"
 
-SECRET_KEY = os.getenv("SECRET_KEY", "auth-secret")
-OTP_SECRET_KEY = os.getenv("OTP_SECRET_KEY", "otp-secret")
+SECRET_KEY = settings.SECRET_KEY
+OTP_SECRET_KEY = settings.OTP_SECRET_KEY
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 OTP_EXPIRE_MINUTES = 10

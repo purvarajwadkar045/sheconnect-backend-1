@@ -6,11 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.import_emails import import_emails
 from app.geo import router as geo_router
 from sqlalchemy import text
-from dotenv import load_dotenv
-
-
-# Load environment variables from .env file
-load_dotenv()
 
 app = FastAPI()
 
