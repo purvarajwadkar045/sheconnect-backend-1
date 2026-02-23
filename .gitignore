@@ -15,4 +15,4 @@ __pycache__/
 .idea/
 
 # Data files - contains sensitive user emails
-app/*.csv
+app/scripts/*.csv

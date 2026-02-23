@@ -1,16 +1,14 @@
-from fastapi import FastAPI
-from app.database import Base, engine
-from app.auth import router as auth_router
-from app.travel import router as travel_router
-from fastapi.middleware.cors import CORSMiddleware
-from app.import_emails import import_emails
-from app.geo import router as geo_router
-from sqlalchemy import text
 from dotenv import load_dotenv
-
-
-# Load environment variables from .env file
 load_dotenv()
+
+from fastapi import FastAPI
+from app.core.database import Base, engine
+from app.routers.auth import router as auth_router
+from app.routers.travel import router as travel_router
+from fastapi.middleware.cors import CORSMiddleware
+from app.scripts.import_emails import import_emails
+from app.routers.geo import router as geo_router
+from sqlalchemy import text
 
 app = FastAPI()
 
@@ -33,7 +31,7 @@ with engine.connect() as connection:
     connection.commit()
 
 Base.metadata.create_all(bind=engine)
-import_emails("app/female_emails.csv")
+import_emails("app/scripts/female_emails.csv")
 
 app.include_router(auth_router)
 app.include_router(travel_router)

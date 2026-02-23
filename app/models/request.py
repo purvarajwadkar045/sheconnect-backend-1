@@ -1,0 +1,28 @@
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from datetime import datetime
+from app.core.database import Base
+from sqlalchemy.orm import relationship
+
+
+class Request(Base):
+    __tablename__ = "requests"
+
+    request_id = Column(Integer, primary_key=True, index=True)
+
+    travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
+
+    sent_by = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    sent_to = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+
+    status = Column(String, default="pending")  
+    # values: pending / accepted / rejected
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    deleted_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    travel = relationship("Travel")
+    sender = relationship("User", foreign_keys=[sent_by])
+    receiver = relationship("User", foreign_keys=[sent_to])

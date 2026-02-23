@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 import uuid
-from app.security import hash_password, verify_password
-from app.database import get_db
-from app.models import User,College
-from app.schemas import UserSignup, Login
-from app.email_utils import send_otp_email, load_allowed_emails
-from app.auth_utils import (
+from app.core.security import hash_password, verify_password
+from app.core.database import get_db
+from app.models import User, College
+from app.schemas.schemas import UserSignup, Login
+from app.utils.email_utils import send_otp_email, load_allowed_emails
+from app.utils.auth_utils import (
     validate_password,
     generate_otp,
     create_jwt_token,
@@ -16,7 +16,7 @@ from app.auth_utils import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-ALLOWED_EMAILS = load_allowed_emails("app/female_emails.csv")
+ALLOWED_EMAILS = load_allowed_emails("app/scripts/female_emails.csv")
 
 # ================= SIGNUP =================
 @router.post("/signup")

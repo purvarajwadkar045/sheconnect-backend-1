@@ -25,7 +25,7 @@ async def send_otp_email(email: str, otp: str):
     await fm.send_message(message)
 
 
-def load_allowed_emails(file_path="app/female_emails.csv"):
+def load_allowed_emails(file_path="app/scripts/female_emails.csv"):
     allowed = set()
 
     if not os.path.exists(file_path):

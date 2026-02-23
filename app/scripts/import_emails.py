@@ -1,6 +1,6 @@
 import csv
 import os
-from app.database import SessionLocal
+from app.core.database import SessionLocal
 from app.models import User
 def import_emails(csv_file_path):
     db = SessionLocal()
