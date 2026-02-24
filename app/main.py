@@ -5,13 +5,9 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-<<<<<<< HEAD
 from app.scripts.import_emails import import_emails
-from app.routers.geo import router as geo_router
 from app.routers.chat import router as chat_router
 from app.routers.blog import router as blog_router
-=======
->>>>>>> a63f6a9 (defined the travel API)
 from sqlalchemy import text
 
 from app.core.database import engine, Base, SessionLocal
@@ -73,12 +69,9 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(travel_router)
 app.include_router(geo_router)
-<<<<<<< HEAD
 app.include_router(chat_router)
 app.include_router(blog_router)
-=======
 app.include_router(emergency_contact_router)
->>>>>>> a63f6a9 (defined the travel API)
 
 @app.get("/")
 def home():
