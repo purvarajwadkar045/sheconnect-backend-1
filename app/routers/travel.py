@@ -203,3 +203,37 @@ def respond_to_request(
     db.commit()
     
     return {"message": f"Request {update_data.status}"}
+
+from sqlalchemy import or_
+
+@router.post("/end")
+def end_trip(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    trip = db.query(Travel).filter(
+        Travel.user_id == current_user.user_id,
+        Travel.status != "completed",
+        Travel.is_active == True
+    ).first()
+
+    if not trip:
+        raise HTTPException(status_code=404, detail="No active trip found to end")
+
+    trip.status = "completed"
+
+    accepted_requests = db.query(Request).filter(
+        or_(
+            Request.sent_by == current_user.user_id,
+            Request.sent_to == current_user.user_id
+        ),
+        Request.status == "accepted",
+        Request.is_active == True
+    ).all()
+    
+    for req in accepted_requests:
+        req.status = "completed"
+
+    db.commit()
+
+    return {"message": "Trip ended successfully", "redirectTo": "/dashboard"}

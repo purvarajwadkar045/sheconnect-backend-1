@@ -76,6 +76,23 @@ async def websocket_endpoint(
                     )
                 continue
 
+            # Handle location sharing event
+            if event_type == "location":
+                lat = data.get("lat")
+                lng = data.get("lng")
+                if receiver_id and receiver_id != user.user_id and lat is not None and lng is not None:
+                    await manager.send_personal_message(
+                        {
+                            "type": "location", 
+                            "senderId": user.user_id, 
+                            "lat": lat, 
+                            "lng": lng,
+                            "timestamp": data.get("timestamp")
+                        },
+                        receiver_id
+                    )
+                continue
+
             # Handle read receipt event
             if event_type == "read":
                 chat_ids = data.get("chat_ids", [])

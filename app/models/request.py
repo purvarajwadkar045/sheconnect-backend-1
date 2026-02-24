@@ -17,6 +17,10 @@ class Request(Base):
     status = Column(String, default="pending")  
     # values: pending / accepted / rejected
 
+    sender_privacy_mode = Column(String, default="ANONYMOUS")
+    receiver_privacy_mode = Column(String, default="ANONYMOUS")
+    # values: ANONYMOUS / LIMITED
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

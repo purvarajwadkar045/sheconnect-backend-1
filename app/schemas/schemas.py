@@ -105,3 +105,14 @@ class ChatMessageRead(BaseModel):
 class BlogCreate(BaseModel):
     title: str
     content: str
+
+class ConnectionActionRequest(BaseModel):
+    connection_id: int
+
+class PrivacyShareInfo(BaseModel):
+    first_name: bool = True
+    college_name: bool = True
+
+class ShareInfoRequest(BaseModel):
+    connection_id: int
+    share: PrivacyShareInfo

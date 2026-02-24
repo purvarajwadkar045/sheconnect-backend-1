@@ -40,6 +40,8 @@ app.include_router(travel_router)
 app.include_router(geo_router)
 app.include_router(chat_router)
 app.include_router(blog_router)
+from app.routers.connect import router as connect_router
+app.include_router(connect_router)
 
 @app.get("/")
 def home():
