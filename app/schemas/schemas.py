@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,constr
 from typing import List
 from datetime import datetime
 from typing import Optional
@@ -16,6 +16,15 @@ class EmergencyContactSchema(BaseModel):
     emergency_name: str
     phone_no: str
     gender: str
+
+class EmergencyContactResponse(BaseModel):
+    emergency_id: int
+    emergency_name: str
+    phone_no: str
+    gender: str
+
+    class Config:
+        from_attributes = True
 
 
 class UserSignup(BaseModel):

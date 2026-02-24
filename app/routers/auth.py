@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 import uuid
 from app.core.security import hash_password, verify_password
 from app.core.database import get_db
-from app.models import User, College
+from app.models import User, College, EmergencyContact
 from app.schemas.schemas import UserSignup, Login
 from app.utils.email_utils import send_otp_email, load_allowed_emails
 from app.utils.auth_utils import (
@@ -43,6 +43,8 @@ async def signup(
 
     
     if user.emergency_contacts:
+        if len(user.emergency_contacts) > 2:
+            raise HTTPException(status_code=400, detail="Cannot add more than 2 emergency contacts.")
         e_numbers = [contact.phone_no for contact in user.emergency_contacts]
         if len(e_numbers) != len(set(e_numbers)):
             raise HTTPException(status_code=400, detail="Emergency contact numbers cannot be duplicates.")
@@ -70,6 +72,16 @@ async def signup(
     existing_user.is_verified = False
     existing_user.is_active = True
     existing_user.anonymous_id = anonymous_id
+
+    # Create and add emergency contacts to the session
+    for contact_data in user.emergency_contacts:
+        new_contact = EmergencyContact(
+            user_id=existing_user.user_id,
+            emergency_name=contact_data.emergency_name,
+            phone_no=contact_data.phone_no,
+            gender=contact_data.gender
+        )
+        db.add(new_contact)
 
     db.commit()
     db.refresh(existing_user)

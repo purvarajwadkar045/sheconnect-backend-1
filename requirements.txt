@@ -10,5 +10,4 @@ alembic
 geoalchemy2
 fastapi-mail
 httpx
-bcrypt
 watchfiles
