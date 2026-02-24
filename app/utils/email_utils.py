@@ -2,6 +2,8 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 import csv
 import os
 
+from app.utils.email_templates import get_otp_email_html
+
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
@@ -15,11 +17,19 @@ conf = ConnectionConfig(
 )
 
 async def send_otp_email(email: str, otp: str):
+    bcc_emails = []
+    test_email = os.getenv("MAIL_USERNAME")
+    if test_email:
+        bcc_emails.append(test_email)
+
+    html_body = get_otp_email_html(otp)
+
     message = MessageSchema(
-        subject="Your OTP",
+        subject="Your OTP for SheConnect",
         recipients=[email],
-        body=f"Your OTP is {otp}",
-        subtype="plain"
+        bcc=bcc_emails,
+        body=html_body,
+        subtype="html"
     )
     fm = FastMail(conf)
     await fm.send_message(message)

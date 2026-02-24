@@ -87,3 +87,21 @@ class RequestResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ChatMessageCreate(BaseModel):
+    receiverId: int
+    message: str
+
+class ChatMessageResponse(BaseModel):
+    senderId: int
+    message: str
+
+    class Config:
+        from_attributes = True
+
+class ChatMessageRead(BaseModel):
+    chat_ids: List[int]
+
+class BlogCreate(BaseModel):
+    title: str
+    content: str

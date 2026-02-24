@@ -8,6 +8,8 @@ from app.routers.travel import router as travel_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.scripts.import_emails import import_emails
 from app.routers.geo import router as geo_router
+from app.routers.chat import router as chat_router
+from app.routers.blog import router as blog_router
 from sqlalchemy import text
 
 app = FastAPI()
@@ -36,6 +38,8 @@ import_emails("app/scripts/female_emails.csv")
 app.include_router(auth_router)
 app.include_router(travel_router)
 app.include_router(geo_router)
+app.include_router(chat_router)
+app.include_router(blog_router)
 
 @app.get("/")
 def home():

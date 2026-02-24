@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, Boolean, DateTime, ForeignKey, Text, String
 from datetime import datetime
 from app.core.database import Base
 from sqlalchemy.orm import relationship
@@ -11,6 +11,7 @@ class Blog(Base):
 
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
 
+    title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
