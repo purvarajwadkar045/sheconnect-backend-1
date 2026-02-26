@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -21,13 +22,20 @@ def add_emergency_contact(
     Adds a new emergency contact for the logged-in user.
     A user can have a maximum of 2 emergency contacts.
     """
-    contact_count = db.query(EmergencyContact).filter(EmergencyContact.user_id == current_user.user_id).count()
+    contact_count = db.query(EmergencyContact).filter(
+        EmergencyContact.user_id == current_user.user_id,
+        EmergencyContact.is_active == True
+    ).count()
     if contact_count >= MAX_CONTACTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot add more than {MAX_CONTACTS} emergency contacts.")
 
+    if current_user.phone_no == contact_data.phone_no:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot add yourself as an emergency contact.")
+
     existing_contact = db.query(EmergencyContact).filter(
         EmergencyContact.user_id == current_user.user_id,
-        EmergencyContact.phone_no == contact_data.phone_no
+        EmergencyContact.phone_no == contact_data.phone_no,
+        EmergencyContact.is_active == True
     ).first()
     if existing_contact:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This phone number is already registered as an emergency contact.")
@@ -46,7 +54,10 @@ def get_emergency_contacts(
     """
     Retrieves all emergency contacts for the logged-in user.
     """
-    return db.query(EmergencyContact).filter(EmergencyContact.user_id == current_user.user_id).all()
+    return db.query(EmergencyContact).filter(
+        EmergencyContact.user_id == current_user.user_id,
+        EmergencyContact.is_active == True
+    ).all()
 
 @router.put("/{contact_id}", response_model=EmergencyContactResponse)
 def update_emergency_contact(
@@ -60,7 +71,8 @@ def update_emergency_contact(
     """
     contact = db.query(EmergencyContact).filter(
         EmergencyContact.emergency_id == contact_id,
-        EmergencyContact.user_id == current_user.user_id
+        EmergencyContact.user_id == current_user.user_id,
+        EmergencyContact.is_active == True
     ).first()
 
     if not contact:
@@ -69,7 +81,8 @@ def update_emergency_contact(
     if contact_data.phone_no != contact.phone_no:
         existing_contact = db.query(EmergencyContact).filter(
             EmergencyContact.user_id == current_user.user_id,
-            EmergencyContact.phone_no == contact_data.phone_no
+            EmergencyContact.phone_no == contact_data.phone_no,
+            EmergencyContact.is_active == True
         ).first()
         if existing_contact:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This phone number is already registered as an emergency contact.")
@@ -90,9 +103,14 @@ def delete_emergency_contact(
     """
     Deletes an emergency contact.
     """
-    contact = db.query(EmergencyContact).filter(EmergencyContact.emergency_id == contact_id, EmergencyContact.user_id == current_user.user_id).first()
+    contact = db.query(EmergencyContact).filter(
+        EmergencyContact.emergency_id == contact_id,
+        EmergencyContact.user_id == current_user.user_id,
+        EmergencyContact.is_active == True
+    ).first()
     if not contact:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergency contact not found.")
     
-    db.delete(contact)
+    contact.is_active = False
+    contact.deleted_at = datetime.utcnow()
     db.commit()

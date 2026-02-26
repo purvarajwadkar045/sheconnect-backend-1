@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import Travel, User, TravelRoute, Request
 from app.schemas.schemas import TravelCreate, TravelResponse, TripRequestCreate, RequestUpdate, RequestResponse
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, text, or_
 import httpx
+from datetime import datetime, timezone, timedelta
 import json
 from typing import List
 
@@ -13,10 +14,16 @@ router = APIRouter(prefix="/travel", tags=["Travel"])
 
 @router.get("/trips", response_model=List[TravelResponse])#Returns all trips created by the logged-in user.
 def get_my_trips(
+    limit: int = 50,
+    offset: int = 0,
+    active_only: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    trips = db.query(Travel).filter(Travel.user_id == current_user.user_id).order_by(desc(Travel.created_at)).all()
+    query = db.query(Travel).filter(Travel.user_id == current_user.user_id)
+    if active_only:
+        query = query.filter(Travel.is_active == True)
+    trips = query.order_by(desc(Travel.created_at)).offset(offset).limit(limit).all()
     return trips
 
 @router.post("/trips")#Creates a new trip.
@@ -26,6 +33,20 @@ async def create_trip(
     current_user: User = Depends(get_current_user),
 ):
     
+    start_time = travel.start_time
+    # If the provided time is naive, assume it's in UTC for comparison.
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc)
+
+    if start_time < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Trip start time cannot be in the past.")
+    
+    if start_time > datetime.now(timezone.utc) + timedelta(days=60):
+        raise HTTPException(status_code=400, detail="Trip cannot be scheduled more than 60 days in advance.")
+
+    if not (0 <= travel.time_flex_minutes <= 120):
+        raise HTTPException(status_code=400, detail="Time flexibility must be between 0 and 120 minutes.")
+
     if not (-90 <= travel.start.lat <= 90) or not (-180 <= travel.start.lng <= 180):
         raise HTTPException(status_code=400, detail="Invalid start coordinates")
     
@@ -49,30 +70,42 @@ async def create_trip(
     )
 
     db.add(new_travel)
-    db.commit()
-    db.refresh(new_travel)
 
     osrm_url = f"http://router.project-osrm.org/route/v1/driving/{travel.start.lng},{travel.start.lat};{travel.end.lng},{travel.end.lat}?overview=full&geometries=geojson"
     
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(osrm_url)
+            response.raise_for_status()  # Raises HTTPStatusError for 4xx/5xx responses
             if response.status_code == 200:
                 data = response.json()
-                if data.get("routes"):
-                    route_data = data["routes"][0]
-                    geometry_json = json.dumps(route_data["geometry"])
-                    
-                    new_route = TravelRoute(
-                        travel_id=new_travel.travel_id,
-                        route_geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_json), 4326),
-                        distance_meters=route_data["distance"],
-                        duration_seconds=route_data["duration"]
-                    )
-                    db.add(new_route)
-                    db.commit()
+                if not data.get("routes"):
+                    raise ValueError("No route found between the specified points.")
+
+                route_data = data["routes"][0]
+                geometry_json = json.dumps(route_data["geometry"])
+                
+                new_route = TravelRoute(
+                    travel_id=new_travel.travel_id,
+                    route_geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_json), 4326),
+                    distance_meters=route_data["distance"],
+                    duration_seconds=route_data["duration"]
+                )
+                db.add(new_route)
+                db.commit()  # Atomically commits both the trip and its route
+                db.refresh(new_travel)
+    except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not generate a valid route for the given locations. Please check addresses. Error: {e}"
+        )
     except Exception as e:
-        print(f"Error fetching/storing route: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected server error occurred during trip creation."
+        )
 
     return {"message": "Trip created successfully"}
 
@@ -92,10 +125,14 @@ def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
     if not my_route:
         return {"matches_found": 0, "matches": [], "message": "Route not generated for this trip yet"}
 
+    # Calculate the current user's travel time window
+    my_trip_earliest = my_trip.travel_date - timedelta(minutes=my_trip.time_flex_minutes)
+    my_trip_latest = my_trip.travel_date + timedelta(minutes=my_trip.time_flex_minutes)
+
     overlap_ratio = (func.ST_Length(func.ST_Intersection(TravelRoute.route_geom, my_route.route_geom)) / func.ST_Length(my_route.route_geom)).label("overlap_score")
     
-    start_distance = func.ST_Distance(Travel.start_point, my_trip.start_point).label("start_dist")
-    end_distance = func.ST_Distance(Travel.end_point, my_trip.end_point).label("end_dist")
+    start_distance = func.ST_Distance(Travel.start_point.cast(text("geography")), my_trip.start_point.cast(text("geography"))).label("start_dist")
+    end_distance = func.ST_Distance(Travel.end_point.cast(text("geography")), my_trip.end_point.cast(text("geography"))).label("end_dist")
 
     results = db.query(Travel, User, overlap_ratio, start_distance, end_distance).join(
         TravelRoute, Travel.travel_id == TravelRoute.travel_id
@@ -106,10 +143,13 @@ def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
         Travel.status == "SEARCHING",
         Travel.is_active == True,
         # Spatial Filter: Start and End within 2km (2000 meters)
-        func.ST_DWithin(Travel.start_point, my_trip.start_point, 2000),
-        func.ST_DWithin(Travel.end_point, my_trip.end_point, 2000),
-        # Time Filter: For simplicity, matching same day. Can be refined to time windows.
-        func.date(Travel.travel_date) == func.date(my_trip.travel_date)
+        func.ST_DWithin(Travel.start_point.cast(text("geography")), my_trip.start_point.cast(text("geography")), 2000),
+        func.ST_DWithin(Travel.end_point.cast(text("geography")), my_trip.end_point.cast(text("geography")), 2000),
+        # Time Window Overlap Filter: Check if the flexible time windows of the two trips overlap.
+        # My earliest start must be before their latest start.
+        my_trip_earliest <= (Travel.travel_date + func.make_interval(mins=Travel.time_flex_minutes)),
+        # Their earliest start must be before my latest start.
+        (Travel.travel_date - func.make_interval(mins=Travel.time_flex_minutes)) <= my_trip_latest
     ).order_by(desc("overlap_score")).limit(10).all()
 
     return {
@@ -135,34 +175,48 @@ def send_trip_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-   
-    target_trip = db.query(Travel).filter(Travel.travel_id == request_data.trip_id).first()
+    # Validate sender's trip
+    sender_trip = db.query(Travel).filter(
+        Travel.travel_id == request_data.sender_trip_id,
+        Travel.user_id == current_user.user_id
+    ).first()
+    if not sender_trip:
+        raise HTTPException(status_code=404, detail="Your trip was not found or you are not the owner.")
+
+    # Validate receiver's trip
+    target_trip = db.query(Travel).filter(
+        Travel.travel_id == request_data.receiver_trip_id,
+        Travel.is_active == True,
+        Travel.status == "SEARCHING"
+    ).first()
     if not target_trip:
-        raise HTTPException(status_code=404, detail="Trip not found")
-    
-    
+        raise HTTPException(status_code=404, detail="The requested trip is not available for matching.")
+
     if target_trip.user_id == current_user.user_id:
         raise HTTPException(status_code=400, detail="Cannot send request to yourself")
 
-    
+    # Check for existing pending requests between these two trips (in either direction)
     existing_request = db.query(Request).filter(
-        Request.travel_id == request_data.trip_id,
-        Request.sent_by == current_user.user_id,
+        or_(
+            (Request.sender_travel_id == request_data.sender_trip_id and Request.receiver_travel_id == request_data.receiver_trip_id),
+            (Request.sender_travel_id == request_data.receiver_trip_id and Request.receiver_travel_id == request_data.sender_trip_id)
+        ),
         Request.status == "pending",
         Request.is_active == True
     ).first()
 
     if existing_request:
-        raise HTTPException(status_code=400, detail="Request already pending")
+        raise HTTPException(status_code=400, detail="A request between these two trips is already pending.")
 
-    
+    # NOTE: This assumes the Request model has been updated to use sender_travel_id and receiver_travel_id
     new_request = Request(
-        travel_id=request_data.trip_id,
+        sender_travel_id=request_data.sender_trip_id,
+        receiver_travel_id=request_data.receiver_trip_id,
         sent_by=current_user.user_id,
         sent_to=target_trip.user_id,
         status="pending"
     )
-    
+
     db.add(new_request)
     db.commit()
     db.refresh(new_request)
@@ -203,3 +257,26 @@ def respond_to_request(
     db.commit()
     
     return {"message": f"Request {update_data.status}"}
+
+@router.post("/trips/{trip_id}/end")
+def end_trip(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    trip = db.query(Travel).filter(Travel.travel_id == trip_id).first()
+    
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+        
+    if trip.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to end this trip")
+        
+    trip.status = "COMPLETED"
+    trip.is_active = False
+    db.commit()
+    
+    return {
+        "message": "Trip ended successfully",
+        "redirectTo": "/dashboard"
+    }

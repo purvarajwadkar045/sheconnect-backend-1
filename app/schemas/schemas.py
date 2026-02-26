@@ -1,7 +1,6 @@
-from pydantic import BaseModel,constr
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional, Annotated
 from datetime import datetime
-from typing import Optional
 from enum import Enum
 
 class TransportMode(str, Enum):
@@ -12,10 +11,16 @@ class TransportMode(str, Enum):
     AUTO_RICKSHAW = "auto-rickshaw"
     METRO = "metro"
 
+class Gender(str, Enum):
+    MALE = "Male"
+    FEMALE = "Female"
+    OTHER = "Other"
+    PREFER_NOT_TO_SAY = "Prefer not to say"
+
 class EmergencyContactSchema(BaseModel):
-    emergency_name: str
-    phone_no: str
-    gender: str
+    emergency_name: Annotated[str, Field(min_length=1, max_length=50, strip_whitespace=True)]
+    phone_no: Annotated[str, Field(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$')]
+    gender: Gender
 
 class EmergencyContactResponse(BaseModel):
     emergency_id: int
@@ -81,7 +86,8 @@ class TravelResponse(BaseModel):
         from_attributes = True
 
 class TripRequestCreate(BaseModel):
-    trip_id: int
+    sender_trip_id: int
+    receiver_trip_id: int
 
 class RequestUpdate(BaseModel):
     status: str
@@ -114,3 +120,22 @@ class ChatMessageRead(BaseModel):
 class BlogCreate(BaseModel):
     title: str
     content: str
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+    otp_token: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    otp: str
+    otp_token: str
+    new_password: str
+    confirm_password: str
+
+class ResendOTPRequest(BaseModel):
+    email: str
+    purpose: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str    
