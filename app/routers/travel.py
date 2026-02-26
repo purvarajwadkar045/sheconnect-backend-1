@@ -72,7 +72,7 @@ async def create_trip(
                     db.add(new_route)
                     db.commit()
     except Exception as e:
-        print(f"Error fetching/storing route: {e}")
+        pass
 
     return {"message": "Trip created successfully"}
 

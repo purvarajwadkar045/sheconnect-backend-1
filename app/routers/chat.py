@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import List, Dict
+import time
 
 from jose import jwt, JWTError
 
@@ -58,6 +59,7 @@ async def websocket_endpoint(
         return
 
     await manager.connect(websocket, user.user_id)
+    last_location_time = 0
 
     try:
         while True:
@@ -81,6 +83,22 @@ async def websocket_endpoint(
                 lat = data.get("lat")
                 lng = data.get("lng")
                 if receiver_id and receiver_id != user.user_id and lat is not None and lng is not None:
+                    # Validate coordinate ranges
+                    try:
+                        lat = float(lat)
+                        lng = float(lng)
+                        if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lng <= 180.0):
+                            raise ValueError()
+                    except ValueError:
+                        await websocket.send_json({"error": "Invalid coordinates provided"})
+                        continue
+                    
+                    # Rate limiting: max 1 update per 2 seconds
+                    current_time = time.time()
+                    if current_time - last_location_time < 2.0:
+                        continue
+                    last_location_time = current_time
+
                     await manager.send_personal_message(
                         {
                             "type": "location", 
@@ -113,8 +131,18 @@ async def websocket_endpoint(
             # Default: Handle standard message event
             message_text = data.get("message")
 
-            if not receiver_id or not message_text:
+            if not receiver_id or message_text is None:
                 await websocket.send_json({"error": "Missing receiverId or message text"})
+                continue
+                
+            message_text = str(message_text).strip()
+            
+            if len(message_text) == 0:
+                await websocket.send_json({"error": "Message cannot be empty."})
+                continue
+                
+            if len(message_text) > 2000:
+                await websocket.send_json({"error": "Message is too long (max 2000 characters)."})
                 continue
                 
             if user.user_id == receiver_id:
@@ -185,68 +213,68 @@ async def websocket_endpoint(
         manager.disconnect(user.user_id)
 
 
-@router.post("/send", response_model=dict)
-def send_message(
-    payload: ChatMessageCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    receiver_id = payload.receiverId
-    message_text = payload.message
-
-    if current_user.user_id == receiver_id:
-        raise HTTPException(status_code=400, detail="Cannot send message to yourself")
-
-    target_user = db.query(User).filter(User.user_id == receiver_id, User.is_active == True).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Receiver not found")
-
-    accepted_request = db.query(Request).filter(
-        Request.status == "accepted",
-        or_(
-            and_(Request.sent_by == current_user.user_id, Request.sent_to == receiver_id),
-            and_(Request.sent_by == receiver_id, Request.sent_to == current_user.user_id)
-        ),
-        Request.is_active == True
-    ).first()
-
-    if not accepted_request:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only chat with users whom you have an accepted travel request with."
-        )
-
-    new_chat = Chat(
-        request_id=accepted_request.request_id,
-        sender_id=current_user.user_id,
-        receiver_id=receiver_id,
-        message=message_text
-    )
-
-    db.add(new_chat)
-    db.commit()
-
-    return {"message": "Message sent successfully"}
-
-
-@router.post("/read", response_model=dict)
-def mark_messages_as_read(
-    payload: ChatMessageRead,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    chat_ids = payload.chat_ids
-    if not chat_ids:
-        return {"message": "No chat IDs provided"}
-
-    db.query(Chat).filter(
-        Chat.chat_id.in_(chat_ids),
-        Chat.receiver_id == current_user.user_id
-    ).update({"is_read": True}, synchronize_session=False)
-    db.commit()
-
-    return {"message": "Messages marked as read"}
-
+# @router.post("/send", response_model=dict)
+# def send_message(
+#     payload: ChatMessageCreate,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     receiver_id = payload.receiverId
+#     message_text = payload.message
+# 
+#     if current_user.user_id == receiver_id:
+#         raise HTTPException(status_code=400, detail="Cannot send message to yourself")
+# 
+#     target_user = db.query(User).filter(User.user_id == receiver_id, User.is_active == True).first()
+#     if not target_user:
+#         raise HTTPException(status_code=404, detail="Receiver not found")
+# 
+#     accepted_request = db.query(Request).filter(
+#         Request.status == "accepted",
+#         or_(
+#             and_(Request.sent_by == current_user.user_id, Request.sent_to == receiver_id),
+#             and_(Request.sent_by == receiver_id, Request.sent_to == current_user.user_id)
+#         ),
+#         Request.is_active == True
+#     ).first()
+# 
+#     if not accepted_request:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="You can only chat with users whom you have an accepted travel request with."
+#         )
+# 
+#     new_chat = Chat(
+#         request_id=accepted_request.request_id,
+#         sender_id=current_user.user_id,
+#         receiver_id=receiver_id,
+#         message=message_text
+#     )
+# 
+#     db.add(new_chat)
+#     db.commit()
+# 
+#     return {"message": "Message sent successfully"}
+# 
+# 
+# @router.post("/read", response_model=dict)
+# def mark_messages_as_read(
+#     payload: ChatMessageRead,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     chat_ids = payload.chat_ids
+#     if not chat_ids:
+#         return {"message": "No chat IDs provided"}
+# 
+#     db.query(Chat).filter(
+#         Chat.chat_id.in_(chat_ids),
+#         Chat.receiver_id == current_user.user_id
+#     ).update({"is_read": True}, synchronize_session=False)
+#     db.commit()
+# 
+#     return {"message": "Messages marked as read"}
+# 
 @router.get("/{userId}", response_model=dict)
 def get_chat_messages(
     userId: int,

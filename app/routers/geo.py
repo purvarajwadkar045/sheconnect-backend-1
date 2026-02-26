@@ -20,7 +20,6 @@ async def autocomplete(q: str = Query(..., min_length=3)):
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"Geocoding error: {e}")
             raise HTTPException(status_code=503, detail="Geocoding service unavailable")
 
     if not isinstance(data, list):

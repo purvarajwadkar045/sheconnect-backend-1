@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 from datetime import datetime
 from typing import Optional
@@ -90,7 +90,7 @@ class RequestResponse(BaseModel):
 
 class ChatMessageCreate(BaseModel):
     receiverId: int
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000, strip_whitespace=True)
 
 class ChatMessageResponse(BaseModel):
     senderId: int
@@ -105,6 +105,10 @@ class ChatMessageRead(BaseModel):
 class BlogCreate(BaseModel):
     title: str
     content: str
+
+class BlogUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
 
 class ConnectionActionRequest(BaseModel):
     connection_id: int

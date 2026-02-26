@@ -16,3 +16,7 @@ __pycache__/
 
 # Data files - contains sensitive user emails
 app/scripts/*.csv
+
+# Project Documentation & API
+Docs/
+postman_collection.json

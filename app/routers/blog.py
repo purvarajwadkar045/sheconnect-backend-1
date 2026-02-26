@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models import User, Blog
-from app.schemas.schemas import BlogCreate
+from app.schemas.schemas import BlogCreate, BlogUpdate
 from typing import List, Dict, Any
+from datetime import datetime
 
 router = APIRouter(prefix="/blogs", tags=["Blogs"])
 
@@ -49,3 +50,64 @@ def get_all_blogs(db: Session = Depends(get_db)):
         })
         
     return {"blogs": response_data}
+
+@router.put("/{blog_id}", status_code=200)
+def update_blog(
+    blog_id: int,
+    update_data: BlogUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Updates an existing blog post.
+    """
+    blog = db.query(Blog).filter(Blog.blog_id == blog_id, Blog.is_active == True).first()
+    
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+        
+    if blog.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this blog")
+        
+    if update_data.title is not None:
+        blog.title = update_data.title
+    if update_data.content is not None:
+        blog.content = update_data.content
+        
+    db.commit()
+    db.refresh(blog)
+    
+    return {
+        "message": "Blog updated successfully",
+        "blog": {
+            "id": blog.blog_id,
+            "title": blog.title,
+            "content": blog.content,
+            "updated_at": blog.updated_at
+        }
+    }
+
+
+@router.delete("/{blog_id}", status_code=200)
+def delete_blog(
+    blog_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Soft deletes a blog post.
+    """
+    blog = db.query(Blog).filter(Blog.blog_id == blog_id, Blog.is_active == True).first()
+    
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+        
+    if blog.user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this blog")
+        
+    blog.is_active = False
+    blog.deleted_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Blog deleted successfully"}
