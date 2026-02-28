@@ -5,7 +5,7 @@ from app.core.security import get_current_user
 from app.models import User, Blog
 from app.schemas.schemas import BlogCreate, BlogUpdate
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/blogs", tags=["Blogs"])
 
@@ -106,7 +106,7 @@ def delete_blog(
         raise HTTPException(status_code=403, detail="Not authorized to delete this blog")
         
     blog.is_active = False
-    blog.deleted_at = datetime.utcnow()
+    blog.deleted_at = datetime.now(timezone.utc)
     
     db.commit()
     

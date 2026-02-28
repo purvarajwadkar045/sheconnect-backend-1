@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 import uuid
-from app.core.security import hash_password, verify_password
+from datetime import datetime, timedelta, timezone
+from app.core.security import hash_password, verify_password, get_current_user_from_refresh_token
 from app.core.database import get_db
-from app.models import User, College
-from app.schemas.schemas import UserSignup, Login
+from app.models import User, College, EmergencyContact
+from app.schemas.schemas import UserSignup, Login, VerifyOTPRequest, ResetPasswordRequest, ResendOTPRequest, ForgotPasswordRequest
 from app.utils.email_utils import send_otp_email, load_allowed_emails
 from app.utils.auth_utils import (
     validate_password,
@@ -18,6 +19,7 @@ from app.utils.auth_utils import (
 router = APIRouter(prefix="/auth", tags=["Auth"])
 ALLOWED_EMAILS = load_allowed_emails("app/scripts/female_emails.csv")
 
+
 # ================= SIGNUP =================
 @router.post("/signup")
 async def signup(
@@ -25,6 +27,7 @@ async def signup(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    user.email_id = user.email_id.lower()
     existing_user = db.query(User).filter(
         User.email_id == user.email_id.lower()
     ).first()
@@ -43,6 +46,8 @@ async def signup(
 
     
     if user.emergency_contacts:
+        if len(user.emergency_contacts) > 2:
+            raise HTTPException(status_code=400, detail="Cannot add more than 2 emergency contacts.")
         e_numbers = [contact.phone_no for contact in user.emergency_contacts]
         if len(e_numbers) != len(set(e_numbers)):
             raise HTTPException(status_code=400, detail="Emergency contact numbers cannot be duplicates.")
@@ -70,6 +75,20 @@ async def signup(
     existing_user.is_verified = False
     existing_user.is_active = True
     existing_user.anonymous_id = anonymous_id
+    existing_user.last_otp_sent_at = datetime.now(timezone.utc)
+
+    # Clear existing emergency contacts to prevent duplicates on re-attempted signup
+    db.query(EmergencyContact).filter(EmergencyContact.user_id == existing_user.user_id).delete(synchronize_session=False)
+
+    # Create and add emergency contacts to the session
+    for contact_data in user.emergency_contacts:
+        new_contact = EmergencyContact(
+            user_id=existing_user.user_id,
+            emergency_name=contact_data.emergency_name,
+            phone_no=contact_data.phone_no,
+            gender=contact_data.gender
+        )
+        db.add(new_contact)
 
     db.commit()
     db.refresh(existing_user)
@@ -87,17 +106,16 @@ async def signup(
 # ================= VERIFY SIGNUP OTP =================
 @router.post("/verify-otp")
 def verify_otp(
-    email: str,
-    otp: str,
-    otp_token: str,
+    request: VerifyOTPRequest,
     db: Session = Depends(get_db)
 ):
-    payload = verify_otp_token(otp_token)
+    email = request.email.lower()
+    payload = verify_otp_token(request.otp_token)
 
     if payload["sub"] != email:
         raise HTTPException(status_code=400, detail="Email mismatch")
 
-    if payload["otp"] != otp:
+    if payload["otp"] != request.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     if payload["purpose"] != "signup":
@@ -150,6 +168,9 @@ async def login(
         otp = generate_otp()
         otp_token = create_otp_token(db_user.email_id, otp, "signup")
 
+        db_user.last_otp_sent_at = datetime.now(timezone.utc)
+        db.commit()
+
         background_tasks.add_task(send_otp_email, db_user.email_id, otp)
 
         return {
@@ -170,14 +191,26 @@ async def login(
         "first_login": False
     }
 
+@router.post("/refresh-token")
+async def refresh_token(current_user: User = Depends(get_current_user_from_refresh_token)):
+    """
+    Generates a new access token from a valid refresh token.
+    """
+    new_access_token = create_jwt_token(current_user.user_id)
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer"
+    }
+
 
 # ================= FORGOT PASSWORD =================
 @router.post("/forgot-password")
 async def forgot_password(
-    email: str,
+    request: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    email = request.email.lower()
     user = db.query(User).filter(User.email_id == email).first()
 
     if not user:
@@ -185,6 +218,9 @@ async def forgot_password(
 
     otp = generate_otp()
     otp_token = create_otp_token(email, otp, "forgot")
+
+    user.last_otp_sent_at = datetime.now(timezone.utc)
+    db.commit()
 
     background_tasks.add_task(send_otp_email, email, otp)
 
@@ -197,16 +233,15 @@ async def forgot_password(
 # ================= VERIFY FORGOT OTP =================
 @router.post("/verify-forgot-otp")
 def verify_forgot_otp(
-    email: str,
-    otp: str,
-    otp_token: str
+    request: VerifyOTPRequest
 ):
-    payload = verify_otp_token(otp_token)
+    email = request.email.lower()
+    payload = verify_otp_token(request.otp_token)
 
     if payload["sub"] != email:
         raise HTTPException(status_code=400, detail="Email mismatch")
 
-    if payload["otp"] != otp:
+    if payload["otp"] != request.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     if payload["purpose"] != "forgot":
@@ -218,18 +253,16 @@ def verify_forgot_otp(
 # ================= RESET PASSWORD =================
 @router.post("/reset-password")
 def reset_password(
-    email: str,
-    otp: str,
-    otp_token: str,
-    new_password: str,
+    request: ResetPasswordRequest,
     db: Session = Depends(get_db)
 ):
-    payload = verify_otp_token(otp_token)
+    email = request.email.lower()
+    payload = verify_otp_token(request.otp_token)
 
     if payload["sub"] != email:
         raise HTTPException(status_code=400, detail="Email mismatch")
 
-    if payload["otp"] != otp:
+    if payload["otp"] != request.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     if payload["purpose"] != "forgot":
@@ -240,7 +273,14 @@ def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.password = hash_password(new_password)
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    is_valid, message = validate_password(request.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=message)
+
+    user.password = hash_password(request.new_password)
     db.commit()
 
     return {"message": "Password reset successful"}
@@ -249,24 +289,30 @@ def reset_password(
 # ================= RESEND OTP =================
 @router.post("/resend-otp")
 async def resend_otp(
-    email: str,
-    purpose: str,
+    request: ResendOTPRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    email = request.email.lower()
     user = db.query(User).filter(User.email_id == email).first()
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if purpose not in ["signup", "forgot"]:
+    if request.purpose not in ["signup", "forgot"]:
         raise HTTPException(status_code=400, detail="Invalid purpose")
 
-    if purpose == "signup" and user.is_verified:
+    if request.purpose == "signup" and user.is_verified:
         raise HTTPException(status_code=400, detail="User already verified")
 
+    if user.last_otp_sent_at and datetime.now(timezone.utc) < user.last_otp_sent_at + timedelta(seconds=60):
+        raise HTTPException(status_code=429, detail="Please wait 60 seconds before resending OTP")
+
     otp = generate_otp()
-    otp_token = create_otp_token(email, otp, purpose)
+    otp_token = create_otp_token(email, otp, request.purpose)
+
+    user.last_otp_sent_at = datetime.now(timezone.utc)
+    db.commit()
 
     background_tasks.add_task(send_otp_email, email, otp)
 

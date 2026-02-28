@@ -1,13 +1,16 @@
 import csv
 import os
+import logging
 from app.core.database import SessionLocal
 from app.models import User
+
+logger = logging.getLogger(__name__)
 def import_emails(csv_file_path):
     db = SessionLocal()
 
     try:
         if not os.path.exists(csv_file_path):
-            print(f"Error: File not found at {csv_file_path}")
+            logger.error(f"File not found at {csv_file_path}")
             return
 
         with open(csv_file_path, newline='', encoding="utf-8-sig") as file:
@@ -16,7 +19,7 @@ def import_emails(csv_file_path):
             # Ensure header exists (stripping whitespace from header names)
             reader.fieldnames = [name.strip() for name in reader.fieldnames] if reader.fieldnames else []
             if "email" not in reader.fieldnames:
-                print(f"Error: CSV must contain an 'email' column. Found: {reader.fieldnames}")
+                logger.error(f"CSV must contain an 'email' column. Found: {reader.fieldnames}")
                 return
 
             count = 0
@@ -44,7 +47,7 @@ def import_emails(csv_file_path):
 
     except Exception as e:
         db.rollback()
-        print(" Error occurred:", e)
+        logger.error(f"Error occurred during email import: {e}")
 
     finally:
         db.close()

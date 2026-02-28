@@ -53,7 +53,8 @@ def create_refresh_token(user_id: int):
     payload = {
         "user_id": user_id,
         "exp": expire,
-        "type": "refresh"
+        "type": "refresh",
+        "scope": "refresh"
     }
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
