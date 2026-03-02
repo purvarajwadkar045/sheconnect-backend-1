@@ -254,6 +254,14 @@ def respond_to_request(
         raise HTTPException(status_code=400, detail="Invalid status. Use 'accepted' or 'rejected'")
         
     req.status = update_data.status
+    if update_data.status == "accepted":
+        sender_trip = db.query(Travel).filter(Travel.travel_id == req.sender_travel_id).first()
+        receiver_trip = db.query(Travel).filter(Travel.travel_id == req.receiver_travel_id).first()
+        
+        if sender_trip:
+            sender_trip.status = "MATCHED"
+        if receiver_trip:
+            receiver_trip.status = "MATCHED"
     db.commit()
     
     return {"message": f"Request {update_data.status}"}

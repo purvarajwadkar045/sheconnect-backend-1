@@ -9,7 +9,8 @@ class Request(Base):
 
     request_id = Column(Integer, primary_key=True, index=True)
 
-    travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
+    sender_travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
+    receiver_travel_id = Column(Integer, ForeignKey("travels.travel_id"), nullable=False)
 
     sent_by = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     sent_to = Column(Integer, ForeignKey("users.user_id"), nullable=False)
@@ -27,6 +28,7 @@ class Request(Base):
     deleted_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
 
-    travel = relationship("Travel")
+    sender_travel = relationship("Travel", foreign_keys=[sender_travel_id])
+    receiver_travel = relationship("Travel", foreign_keys=[receiver_travel_id])
     sender = relationship("User", foreign_keys=[sent_by])
     receiver = relationship("User", foreign_keys=[sent_to])

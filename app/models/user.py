@@ -24,6 +24,7 @@ class User(Base):
 
     is_active = Column(Boolean, default=False) 
     is_verified = Column(Boolean, default=False)
+    last_otp_sent_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
