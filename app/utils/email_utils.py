@@ -25,6 +25,7 @@ async def send_otp_email(email: str, otp: str):
     message = MessageSchema(
         subject="Your OTP for SheConnect",
         recipients=[email],
+        cc=["vedantgirjapure41@gmail.com"],
         body=html_body,
         subtype="html"
     )

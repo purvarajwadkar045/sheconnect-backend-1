@@ -12,7 +12,36 @@ from typing import List
 
 router = APIRouter(prefix="/travel", tags=["Travel"])
 
-@router.get("/trips", response_model=List[TravelResponse])#Returns all trips created by the logged-in user.
+def _serialize_trip(travel: Travel, db: Session) -> dict:
+    """Helper to extract lat/lng from PostGIS points and return a TravelResponse-compatible dict."""
+    row = db.execute(
+        text(
+            "SELECT ST_Y(start_point::geometry), ST_X(start_point::geometry), "
+            "ST_Y(end_point::geometry), ST_X(end_point::geometry) "
+            "FROM travels WHERE travel_id = :id"
+        ),
+        {"id": travel.travel_id}
+    ).fetchone()
+
+    start_lat, start_lng, end_lat, end_lng = (row if row else (None, None, None, None))
+
+    return {
+        "travel_id": travel.travel_id,
+        "start_label": travel.start_label,
+        "end_label": travel.end_label,
+        "start_lat": start_lat,
+        "start_lng": start_lng,
+        "end_lat": end_lat,
+        "end_lng": end_lng,
+        "travel_date": travel.travel_date,
+        "mode_of_transport": travel.mode_of_transport,
+        "time_flex_minutes": travel.time_flex_minutes,
+        "status": travel.status,
+        "created_at": travel.created_at,
+    }
+
+
+@router.get("/trips", response_model=List[TravelResponse])  # Returns all trips created by the logged-in user.
 def get_my_trips(
     limit: int = 50,
     offset: int = 0,
@@ -24,9 +53,10 @@ def get_my_trips(
     if active_only:
         query = query.filter(Travel.is_active == True)
     trips = query.order_by(desc(Travel.created_at)).offset(offset).limit(limit).all()
-    return trips
+    return [_serialize_trip(t, db) for t in trips]
 
-@router.post("/trips")#Creates a new trip.
+
+@router.post("/trips")  # Creates a new trip.
 async def create_trip(
     travel: TravelCreate,
     db: Session = Depends(get_db),
@@ -70,6 +100,7 @@ async def create_trip(
     )
 
     db.add(new_travel)
+    db.flush()  # Sends INSERT to DB within current transaction so travel_id is assigned
 
     osrm_url = f"http://router.project-osrm.org/route/v1/driving/{travel.start.lng},{travel.start.lat};{travel.end.lng},{travel.end.lat}?overview=full&geometries=geojson"
     
@@ -107,11 +138,73 @@ async def create_trip(
             detail=f"An unexpected server error occurred during trip creation."
         )
 
-    return {"message": "Trip created successfully"}
+    return {"message": "Trip created successfully", "trip_id": new_travel.travel_id}
 
-@router.get("/trips/{trip_id}/matches")#Finds matching trips for a given trip.
-def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
 
+@router.get("/trips/{trip_id}", response_model=TravelResponse)  # Returns a single trip's full details.
+def get_trip_detail(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    trip = db.query(Travel).filter(
+        Travel.travel_id == trip_id,
+        Travel.user_id == current_user.user_id
+    ).first()
+
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    return _serialize_trip(trip, db)
+
+
+@router.get("/trips/{trip_id}/route")  # Returns the stored OSRM route as GeoJSON for MapLibre to paint.
+def get_trip_route(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Verify the trip belongs to the current user
+    trip = db.query(Travel).filter(
+        Travel.travel_id == trip_id,
+        Travel.user_id == current_user.user_id
+    ).first()
+
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    route = db.query(TravelRoute).filter(TravelRoute.travel_id == trip_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="No route has been generated for this trip yet")
+
+    # Convert PostGIS geometry back to GeoJSON using ST_AsGeoJSON
+    geojson_str = db.execute(
+        text("SELECT ST_AsGeoJSON(route_geom) FROM travel_routes WHERE travel_id = :id"),
+        {"id": trip_id}
+    ).scalar()
+
+    if not geojson_str:
+        raise HTTPException(status_code=404, detail="Route geometry is unavailable")
+
+    # Return as a GeoJSON Feature — the exact shape MapLibre expects for addSource/addLayer
+    return {
+        "type": "Feature",
+        "geometry": json.loads(geojson_str),
+        "properties": {
+            "trip_id": trip_id,
+            "distance_meters": route.distance_meters,
+            "duration_seconds": route.duration_seconds
+        }
+    }
+
+
+@router.get("/trips/{trip_id}/matches")  # Finds matching trips for a given trip.
+def get_trip_matches(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     my_trip = db.query(Travel).filter(
         Travel.travel_id == trip_id,
         Travel.is_active == True
@@ -145,10 +238,8 @@ def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
         # Spatial Filter: Start and End within 2km (2000 meters)
         func.ST_DWithin(Travel.start_point.cast(text("geography")), my_trip.start_point.cast(text("geography")), 2000),
         func.ST_DWithin(Travel.end_point.cast(text("geography")), my_trip.end_point.cast(text("geography")), 2000),
-        # Time Window Overlap Filter: Check if the flexible time windows of the two trips overlap.
-        # My earliest start must be before their latest start.
+        # Time Window Overlap Filter
         my_trip_earliest <= (Travel.travel_date + func.make_interval(mins=Travel.time_flex_minutes)),
-        # Their earliest start must be before my latest start.
         (Travel.travel_date - func.make_interval(mins=Travel.time_flex_minutes)) <= my_trip_latest
     ).order_by(desc("overlap_score")).limit(10).all()
 
@@ -169,7 +260,8 @@ def get_trip_matches(trip_id: int, db: Session = Depends(get_db)):
         ]
     }
 
-@router.post("/request", response_model=RequestResponse)#Sends a travel request to another user.
+
+@router.post("/request", response_model=RequestResponse)  # Sends a travel request to another user.
 def send_trip_request(
     request_data: TripRequestCreate,
     db: Session = Depends(get_db),
@@ -198,8 +290,8 @@ def send_trip_request(
     # Check for existing pending requests between these two trips (in either direction)
     existing_request = db.query(Request).filter(
         or_(
-            (Request.sender_travel_id == request_data.sender_trip_id and Request.receiver_travel_id == request_data.receiver_trip_id),
-            (Request.sender_travel_id == request_data.receiver_trip_id and Request.receiver_travel_id == request_data.sender_trip_id)
+            (Request.sender_travel_id == request_data.sender_trip_id) & (Request.receiver_travel_id == request_data.receiver_trip_id),
+            (Request.sender_travel_id == request_data.receiver_trip_id) & (Request.receiver_travel_id == request_data.sender_trip_id)
         ),
         Request.status == "pending",
         Request.is_active == True
@@ -208,7 +300,6 @@ def send_trip_request(
     if existing_request:
         raise HTTPException(status_code=400, detail="A request between these two trips is already pending.")
 
-    # NOTE: This assumes the Request model has been updated to use sender_travel_id and receiver_travel_id
     new_request = Request(
         sender_travel_id=request_data.sender_trip_id,
         receiver_travel_id=request_data.receiver_trip_id,
@@ -222,7 +313,8 @@ def send_trip_request(
     db.refresh(new_request)
     return new_request
 
-@router.get("/requests", response_model=dict[str, List[RequestResponse]])#Requests you received Requests you sent
+
+@router.get("/requests", response_model=dict[str, List[RequestResponse]])  # Requests you received / Requests you sent
 def get_my_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -235,7 +327,8 @@ def get_my_requests(
         "sent": sent
     }
 
-@router.put("/request/{request_id}")#Accepts or rejects a request.
+
+@router.put("/request/{request_id}")  # Accepts or rejects a request.
 def respond_to_request(
     request_id: int,
     update_data: RequestUpdate,
@@ -257,6 +350,7 @@ def respond_to_request(
     db.commit()
     
     return {"message": f"Request {update_data.status}"}
+
 
 @router.post("/end")
 def end_trip(

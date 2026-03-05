@@ -63,8 +63,13 @@ class TravelResponse(BaseModel):
     travel_id: int
     start_label: str
     end_label: str
+    start_lat: Optional[float] = None
+    start_lng: Optional[float] = None
+    end_lat: Optional[float] = None
+    end_lng: Optional[float] = None
     travel_date: datetime
     mode_of_transport: str
+    time_flex_minutes: int
     status: str
     created_at: datetime
 
@@ -80,7 +85,8 @@ class RequestUpdate(BaseModel):
 
 class RequestResponse(BaseModel):
     request_id: int
-    travel_id: int
+    sender_travel_id: int
+    receiver_travel_id: int
     sent_by: int
     sent_to: int
     status: str
