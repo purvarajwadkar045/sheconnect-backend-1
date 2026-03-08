@@ -4,11 +4,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import Travel, User, TravelRoute, Request
 from app.schemas.schemas import TravelCreate, TravelResponse, TripRequestCreate, RequestUpdate, RequestResponse
+from geoalchemy2 import Geography
 from sqlalchemy import func, desc, text, or_
 import httpx
 from datetime import datetime, timezone, timedelta
 import json
+import logging
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/travel", tags=["Travel"])
 
@@ -105,7 +109,7 @@ async def create_trip(
     osrm_url = f"http://router.project-osrm.org/route/v1/driving/{travel.start.lng},{travel.start.lat};{travel.end.lng},{travel.end.lat}?overview=full&geometries=geojson"
     
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(osrm_url)
             response.raise_for_status()  # Raises HTTPStatusError for 4xx/5xx responses
             if response.status_code == 200:
@@ -127,15 +131,17 @@ async def create_trip(
                 db.refresh(new_travel)
     except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as e:
         db.rollback()
+        logger.error(f"OSRM/Route error [{type(e).__name__}]: {e}")
         raise HTTPException(
             status_code=400,
-            detail=f"Could not generate a valid route for the given locations. Please check addresses. Error: {e}"
+            detail=f"Could not generate a valid route for the given locations. Error: [{type(e).__name__}] {e}"
         )
     except Exception as e:
         db.rollback()
+        logger.error(f"Unexpected trip creation error [{type(e).__name__}]: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected server error occurred during trip creation."
+            detail=f"An unexpected server error occurred during trip creation. [{type(e).__name__}]: {e}"
         )
 
     return {"message": "Trip created successfully", "trip_id": new_travel.travel_id}
@@ -207,6 +213,7 @@ def get_trip_matches(
 ):
     my_trip = db.query(Travel).filter(
         Travel.travel_id == trip_id,
+        Travel.user_id == current_user.user_id,
         Travel.is_active == True
     ).first()
 
@@ -222,10 +229,32 @@ def get_trip_matches(
     my_trip_earliest = my_trip.travel_date - timedelta(minutes=my_trip.time_flex_minutes)
     my_trip_latest = my_trip.travel_date + timedelta(minutes=my_trip.time_flex_minutes)
 
-    overlap_ratio = (func.ST_Length(func.ST_Intersection(TravelRoute.route_geom, my_route.route_geom)) / func.ST_Length(my_route.route_geom)).label("overlap_score")
-    
-    start_distance = func.ST_Distance(Travel.start_point.cast(text("geography")), my_trip.start_point.cast(text("geography"))).label("start_dist")
-    end_distance = func.ST_Distance(Travel.end_point.cast(text("geography")), my_trip.end_point.cast(text("geography"))).label("end_dist")
+    # Fetch my_trip's raw coordinates from DB (needed to build proper SQL geography literals)
+    coords = db.execute(
+        text(
+            "SELECT ST_Y(start_point::geometry), ST_X(start_point::geometry), "
+            "ST_Y(end_point::geometry), ST_X(end_point::geometry) "
+            "FROM travels WHERE travel_id = :id"
+        ),
+        {"id": trip_id}
+    ).fetchone()
+
+    if not coords:
+        return {"matches_found": 0, "matches": [], "message": "Could not retrieve trip coordinates"}
+
+    my_start_lat, my_start_lng, my_end_lat, my_end_lng = coords
+
+    # Build proper SQL geography points for my_trip
+    my_start_geo = func.ST_SetSRID(func.ST_MakePoint(my_start_lng, my_start_lat), 4326).cast(Geography(geometry_type='POINT', srid=4326))
+    my_end_geo   = func.ST_SetSRID(func.ST_MakePoint(my_end_lng,   my_end_lat),   4326).cast(Geography(geometry_type='POINT', srid=4326))
+
+    # Cast Geography→Geometry for ST_Intersection/ST_Length (PostGIS requirement)
+    other_geom = func.ST_GeomFromWKB(func.ST_AsBinary(TravelRoute.route_geom))
+    my_geom    = func.ST_GeomFromWKB(func.ST_AsBinary(my_route.route_geom))
+
+    overlap_ratio  = (func.ST_Length(func.ST_Intersection(other_geom, my_geom)) / func.ST_Length(my_geom)).label("overlap_score")
+    start_distance = func.ST_Distance(Travel.start_point, my_start_geo).label("start_dist")
+    end_distance   = func.ST_Distance(Travel.end_point,   my_end_geo).label("end_dist")
 
     results = db.query(Travel, User, overlap_ratio, start_distance, end_distance).join(
         TravelRoute, Travel.travel_id == TravelRoute.travel_id
@@ -236,11 +265,11 @@ def get_trip_matches(
         Travel.status == "SEARCHING",
         Travel.is_active == True,
         # Spatial Filter: Start and End within 2km (2000 meters)
-        func.ST_DWithin(Travel.start_point.cast(text("geography")), my_trip.start_point.cast(text("geography")), 2000),
-        func.ST_DWithin(Travel.end_point.cast(text("geography")), my_trip.end_point.cast(text("geography")), 2000),
+        func.ST_DWithin(Travel.start_point, my_start_geo, 2000),
+        func.ST_DWithin(Travel.end_point,   my_end_geo,   2000),
         # Time Window Overlap Filter
-        my_trip_earliest <= (Travel.travel_date + func.make_interval(mins=Travel.time_flex_minutes)),
-        (Travel.travel_date - func.make_interval(mins=Travel.time_flex_minutes)) <= my_trip_latest
+        my_trip_earliest <= (Travel.travel_date + func.make_interval(0, 0, 0, 0, 0, Travel.time_flex_minutes, 0)),
+        (Travel.travel_date - func.make_interval(0, 0, 0, 0, 0, Travel.time_flex_minutes, 0)) <= my_trip_latest
     ).order_by(desc("overlap_score")).limit(10).all()
 
     return {
@@ -270,10 +299,12 @@ def send_trip_request(
     # Validate sender's trip
     sender_trip = db.query(Travel).filter(
         Travel.travel_id == request_data.sender_trip_id,
-        Travel.user_id == current_user.user_id
+        Travel.user_id == current_user.user_id,
+        Travel.is_active == True,
+        Travel.status == "SEARCHING"
     ).first()
     if not sender_trip:
-        raise HTTPException(status_code=404, detail="Your trip was not found or you are not the owner.")
+        raise HTTPException(status_code=404, detail="Your trip was not found, is not active, or you are not the owner.")
 
     # Validate receiver's trip
     target_trip = db.query(Travel).filter(
@@ -339,7 +370,10 @@ def respond_to_request(
     
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-        
+
+    if req.status != "pending":
+        raise HTTPException(status_code=400, detail="This request has already been resolved")
+
     if req.sent_to != current_user.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to respond to this request")
         
@@ -354,14 +388,18 @@ def respond_to_request(
 
 @router.post("/end")
 def end_trip(
+    trip_id: int = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    trip = db.query(Travel).filter(
+    query = db.query(Travel).filter(
         Travel.user_id == current_user.user_id,
         Travel.status != "completed",
         Travel.is_active == True
-    ).first()
+    )
+    if trip_id:
+        query = query.filter(Travel.travel_id == trip_id)
+    trip = query.first()
 
     if not trip:
         raise HTTPException(status_code=404, detail="No active trip found to end")
@@ -369,10 +407,11 @@ def end_trip(
     trip.status = "completed"
     trip.is_active = False
 
+    # Only close requests linked to THIS specific trip
     accepted_requests = db.query(Request).filter(
         or_(
-            Request.sent_by == current_user.user_id,
-            Request.sent_to == current_user.user_id
+            Request.sender_travel_id == trip.travel_id,
+            Request.receiver_travel_id == trip.travel_id
         ),
         Request.status == "accepted",
         Request.is_active == True

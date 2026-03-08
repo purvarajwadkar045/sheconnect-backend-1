@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 import os
 
 SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("FATAL: SECRET_KEY environment variable is not set.")
 ALGORITHM = "HS256"
 
 # pwd_context removed
@@ -39,6 +41,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is deactivated")
+
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Email not verified. Please verify your email first.")
 
     return user
 

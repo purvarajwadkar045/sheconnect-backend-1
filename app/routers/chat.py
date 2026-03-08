@@ -43,7 +43,11 @@ def get_user_from_token(token: str, db: Session) -> User:
     except JWTError:
         return None
     
-    user = db.query(User).filter(User.user_id == user_id, User.is_active == True).first()
+    user = db.query(User).filter(
+        User.user_id == user_id,
+        User.is_active == True,
+        User.is_verified == True
+    ).first()
     return user
 
 
@@ -283,6 +287,22 @@ def get_chat_messages(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # Guard: only allow reading chats with users you have an accepted request with
+    accepted_request = db.query(Request).filter(
+        Request.status == "accepted",
+        or_(
+            and_(Request.sent_by == current_user.user_id, Request.sent_to == userId),
+            and_(Request.sent_by == userId, Request.sent_to == current_user.user_id)
+        ),
+        Request.is_active == True
+    ).first()
+
+    if not accepted_request:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only view chats with users you have an accepted travel request with."
+        )
+
     chats = db.query(Chat).filter(
         or_(
             and_(Chat.sender_id == current_user.user_id, Chat.receiver_id == userId),

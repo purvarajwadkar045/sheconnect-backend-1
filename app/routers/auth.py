@@ -6,7 +6,7 @@ from app.core.security import hash_password, verify_password, get_current_user_f
 from app.core.database import get_db
 from app.models import User, College, EmergencyContact
 from app.schemas.schemas import UserSignup, Login, VerifyOTPRequest, ResetPasswordRequest, ResendOTPRequest, ForgotPasswordRequest
-from app.utils.email_utils import send_otp_email, load_allowed_emails
+from app.utils.email_utils import send_otp_email
 from app.utils.auth_utils import (
     validate_password,
     generate_otp,
@@ -17,7 +17,6 @@ from app.utils.auth_utils import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-ALLOWED_EMAILS = load_allowed_emails("app/scripts/female_emails.csv")
 
 
 # ================= SIGNUP =================
@@ -75,7 +74,7 @@ async def signup(
     existing_user.is_verified = False
     existing_user.is_active = True
     existing_user.anonymous_id = anonymous_id
-    existing_user.last_otp_sent_at = datetime.now(timezone.utc)
+    existing_user.last_otp_sent_at = datetime.now()
 
     # Clear existing emergency contacts to prevent duplicates on re-attempted signup
     db.query(EmergencyContact).filter(EmergencyContact.user_id == existing_user.user_id).delete(synchronize_session=False)
@@ -168,7 +167,7 @@ async def login(
         otp = generate_otp()
         otp_token = create_otp_token(db_user.email_id, otp, "signup")
 
-        db_user.last_otp_sent_at = datetime.now(timezone.utc)
+        db_user.last_otp_sent_at = datetime.now()
         db.commit()
 
         background_tasks.add_task(send_otp_email, db_user.email_id, otp)
@@ -216,10 +215,16 @@ async def forgot_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Please complete signup first")
+
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Please verify your email first")
+
     otp = generate_otp()
     otp_token = create_otp_token(email, otp, "forgot")
 
-    user.last_otp_sent_at = datetime.now(timezone.utc)
+    user.last_otp_sent_at = datetime.now()
     db.commit()
 
     background_tasks.add_task(send_otp_email, email, otp)
@@ -305,13 +310,13 @@ async def resend_otp(
     if request.purpose == "signup" and user.is_verified:
         raise HTTPException(status_code=400, detail="User already verified")
 
-    if user.last_otp_sent_at and datetime.now(timezone.utc) < user.last_otp_sent_at + timedelta(seconds=60):
+    if user.last_otp_sent_at and datetime.now() < user.last_otp_sent_at + timedelta(seconds=60):
         raise HTTPException(status_code=429, detail="Please wait 60 seconds before resending OTP")
 
     otp = generate_otp()
     otp_token = create_otp_token(email, otp, request.purpose)
 
-    user.last_otp_sent_at = datetime.now(timezone.utc)
+    user.last_otp_sent_at = datetime.now()
     db.commit()
 
     background_tasks.add_task(send_otp_email, email, otp)

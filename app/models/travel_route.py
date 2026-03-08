@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import Base
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geography
@@ -16,6 +16,6 @@ class TravelRoute(Base):
     distance_meters = Column(Float)
     duration_seconds = Column(Float)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     travel = relationship("Travel", back_populates="route")

@@ -9,8 +9,13 @@ from typing import Tuple
 
 ALGORITHM = "HS256"
 
-SECRET_KEY = os.getenv("SECRET_KEY", "auth-secret")
-OTP_SECRET_KEY = os.getenv("OTP_SECRET_KEY", "otp-secret")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("FATAL: SECRET_KEY environment variable is not set.")
+
+OTP_SECRET_KEY = os.getenv("OTP_SECRET_KEY")
+if not OTP_SECRET_KEY:
+    raise RuntimeError("FATAL: OTP_SECRET_KEY environment variable is not set.")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 OTP_EXPIRE_MINUTES = 10

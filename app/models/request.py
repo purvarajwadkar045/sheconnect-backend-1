@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import Base
 from sqlalchemy.orm import relationship
 
@@ -22,8 +22,8 @@ class Request(Base):
     receiver_privacy_mode = Column(String, default="ANONYMOUS")
     # values: ANONYMOUS / LIMITED
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     deleted_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import Base
 from sqlalchemy.orm import relationship
 
@@ -18,7 +18,7 @@ class Chat(Base):
 
     is_read = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     is_active = Column(Boolean, default=True)
 

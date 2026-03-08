@@ -60,6 +60,7 @@ def share_info_connection(
 
     is_sender = connection.sent_by == current_user.user_id
 
+    # Set YOUR privacy mode to LIMITED (you're choosing to share your own info)
     if is_sender:
         connection.sender_privacy_mode = "LIMITED"
     else:
@@ -67,7 +68,7 @@ def share_info_connection(
 
     db.commit()
 
-    # Determine what to return. If mutual, return partner info.
+    # Determine partner's privacy choice (what THEY previously chose to share)
     partner_id = connection.sent_to if is_sender else connection.sent_by
     partner_privacy = connection.receiver_privacy_mode if is_sender else connection.sender_privacy_mode
 
@@ -77,13 +78,15 @@ def share_info_connection(
         "connectionId": connection.request_id
     }
 
+    # Return partner's info only if THEY also chose LIMITED
     if partner_privacy == "LIMITED":
         partner = db.query(User).filter(User.user_id == partner_id).first()
         if partner:
             partner_college = db.query(College).filter(College.college_id == partner.college_id).first()
+            # Partner's info is returned based on what the PARTNER chose to share (not the caller's prefs)
             response_data["sharedInfo"] = {
                 "firstName": partner.name.split()[0] if partner.name else "Partner",
-                "collegeName": partner_college.name if partner_college else "Unknown College"
+                "collegeName": partner_college.college_name if partner_college else "Unknown College"
             }
     else:
         response_data["sharedInfo"] = None

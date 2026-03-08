@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -55,9 +56,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-origins = [
-    "http://localhost:5173",
-]
+origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+origins = [origin.strip() for origin in origins]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

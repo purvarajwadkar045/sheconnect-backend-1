@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import Base
 from sqlalchemy.orm import relationship
 
@@ -25,8 +25,10 @@ class User(Base):
     is_active = Column(Boolean, default=False) 
     is_verified = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    last_otp_sent_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     deleted_at = Column(DateTime, nullable=True)
 
     travels = relationship("Travel", back_populates="user")

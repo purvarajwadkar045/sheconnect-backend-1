@@ -110,12 +110,12 @@ class ChatMessageRead(BaseModel):
     chat_ids: List[int]
 
 class BlogCreate(BaseModel):
-    title: str
-    content: str
+    title: str = Field(..., min_length=1, max_length=255, strip_whitespace=True)
+    content: str = Field(..., min_length=1, max_length=50000, strip_whitespace=True)
 
 class BlogUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=255, strip_whitespace=True)
+    content: Optional[str] = Field(None, min_length=1, max_length=50000, strip_whitespace=True)
 
 class ConnectionActionRequest(BaseModel):
     connection_id: int
