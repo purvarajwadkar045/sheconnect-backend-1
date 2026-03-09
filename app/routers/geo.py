@@ -7,15 +7,15 @@ router = APIRouter(prefix="/api/geo", tags=["Geo"])
 
 @router.get("/autocomplete")
 async def autocomplete(q: str = Query(..., min_length=3)):
-    url = "https://nominatim.openstreetmap.org/search"
+    # Photon by Komoot is built on OpenStreetMap and supports type-ahead
+    url = "https://photon.komoot.io/api/"
     params = {
         "q": q,
-        "format": "json",
         "limit": 5,
-        "addressdetails": 1,
-        "countrycodes": "in"
+        "lang": "en"
     }
-    # Nominatim usage policy requires a User-Agent with contact info
+    
+    # Photon does not strictly require the User-Agent, but it's good practice
     headers = {"User-Agent": "SheConnect-Backend/1.0 (vedantgirjapure41@gmail.com)"}
     
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -24,20 +24,37 @@ async def autocomplete(q: str = Query(..., min_length=3)):
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            logger.error(f"Nominatim geocoding error: {e}")
+            logger.error(f"Photon geocoding error: {e}")
             raise HTTPException(status_code=503, detail="Geocoding service unavailable")
 
-    if not isinstance(data, list):
+    features = data.get("features", [])
+    if not features:
         return {"results": []}
 
     results = []
-    for item in data:
-        results.append({
-            "place_id": item.get("place_id"),
-            "label": item.get("display_name"),
-            "lat": float(item.get("lat")),
-            "lng": float(item.get("lon")),
-            "confidence": 0.9 
-        })
+    for item in features:
+        props = item.get("properties", {})
+        geometry = item.get("geometry", {})
         
+        # Build a readable label (e.g. "Pune, Maharashtra, India")
+        name = props.get("name", "")
+        state = props.get("state", "")
+        country = props.get("country", "")
+        
+        # Filter out empty strings and join with commas
+        label_parts = [part for part in [name, state, country] if part]
+        label = ", ".join(label_parts) if label_parts else "Unknown Location"
+        
+        coords = geometry.get("coordinates", [])
+        if len(coords) >= 2:
+            lng, lat = coords[0], coords[1]
+            results.append({
+                "place_id": props.get("osm_id"),
+                "label": label,
+                "lat": float(lat),
+                "lng": float(lng),
+                "confidence": 0.9 
+            })
+            
     return {"results": results}
+
