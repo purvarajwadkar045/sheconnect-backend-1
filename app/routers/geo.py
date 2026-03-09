@@ -12,7 +12,8 @@ async def autocomplete(q: str = Query(..., min_length=3)):
         "q": q,
         "format": "json",
         "limit": 5,
-        "addressdetails": 1
+        "addressdetails": 1,
+        "countrycodes": "in"
     }
     # Nominatim usage policy requires a User-Agent with contact info
     headers = {"User-Agent": "SheConnect-Backend/1.0 (vedantgirjapure41@gmail.com)"}
