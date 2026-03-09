@@ -3,6 +3,7 @@ from app.core.security import get_current_user
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import Travel, User, TravelRoute, Request
+from app.models.chat import Chat
 from app.schemas.schemas import TravelCreate, TravelResponse, TripRequestCreate, RequestUpdate, RequestResponse
 from geoalchemy2 import Geography
 from sqlalchemy import func, desc, text, or_
@@ -417,8 +418,14 @@ def end_trip(
         Request.is_active == True
     ).all()
     
+    accepted_req_ids = []
     for req in accepted_requests:
         req.status = "completed"
+        accepted_req_ids.append(req.request_id)
+
+    # Hard-delete chat messages associated with these completed requests for privacy
+    if accepted_req_ids:
+        db.query(Chat).filter(Chat.request_id.in_(accepted_req_ids)).delete(synchronize_session=False)
 
     # Also resolve any pending requests so they don't remain stuck
     pending_requests = db.query(Request).filter(
