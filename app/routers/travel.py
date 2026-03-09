@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends,HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.security import get_current_user
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -47,8 +47,8 @@ def _serialize_trip(travel: Travel, db: Session) -> dict:
 
 @router.get("/trips", response_model=List[TravelResponse])  # Returns all trips created by the logged-in user.
 def get_my_trips(
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
     active_only: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -419,6 +419,20 @@ def end_trip(
     
     for req in accepted_requests:
         req.status = "completed"
+
+    # Also resolve any pending requests so they don't remain stuck
+    pending_requests = db.query(Request).filter(
+        or_(
+            Request.sender_travel_id == trip.travel_id,
+            Request.receiver_travel_id == trip.travel_id
+        ),
+        Request.status == "pending",
+        Request.is_active == True
+    ).all()
+    
+    for req in pending_requests:
+        req.status = "rejected"
+        req.is_active = False
 
     db.commit()
 

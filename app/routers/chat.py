@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import List, Dict
@@ -93,7 +93,7 @@ async def websocket_endpoint(
                         lng = float(lng)
                         if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lng <= 180.0):
                             raise ValueError()
-                    except ValueError:
+                    except (ValueError, TypeError):
                         await websocket.send_json({"error": "Invalid coordinates provided"})
                         continue
                     
@@ -282,8 +282,8 @@ async def websocket_endpoint(
 @router.get("/{userId}", response_model=dict)
 def get_chat_messages(
     userId: int,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

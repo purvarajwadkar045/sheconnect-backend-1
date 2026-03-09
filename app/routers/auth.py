@@ -51,9 +51,6 @@ async def signup(
         if len(e_numbers) != len(set(e_numbers)):
             raise HTTPException(status_code=400, detail="Emergency contact numbers cannot be duplicates.")
         
-    if user.password != user.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
-
     is_valid, message = validate_password(user.password)
     if not is_valid:
         raise HTTPException(status_code=400, detail=message)
@@ -277,9 +274,6 @@ def reset_password(
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    if request.new_password != request.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
 
     is_valid, message = validate_password(request.new_password)
     if not is_valid:
