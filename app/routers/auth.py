@@ -17,7 +17,9 @@ from app.utils.auth_utils import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
+@router.get("/home")
+async def home():
+    return {"message": "Welcome to SheConnect API"}
 
 # ================= SIGNUP =================
 @router.post("/signup")
