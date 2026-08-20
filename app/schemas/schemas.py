@@ -51,6 +51,19 @@ class Login(BaseModel):
     email_id: EmailStr
     password: str
 
+class UserProfile(BaseModel):
+    user_id: int
+    name: Optional[str] = None
+    email_id: EmailStr
+    phone_no: Optional[str] = None
+    college_id: Optional[int] = None
+    anonymous_id: Optional[str] = None
+    is_active: bool
+    is_verified: bool
+
+    class Config:
+        from_attributes = True
+
 
 class LocationInput(BaseModel):
     lat: float = Field(..., ge=-90.0, le=90.0)
@@ -85,9 +98,11 @@ class TravelResponse(BaseModel):
 class TripRequestCreate(BaseModel):
     sender_trip_id: int
     receiver_trip_id: int
+    privacy_mode: str = "ANONYMOUS"
 
 class RequestUpdate(BaseModel):
     status: str
+    privacy_mode: Optional[str] = "ANONYMOUS"
 
 class RequestResponse(BaseModel):
     request_id: int
@@ -97,6 +112,14 @@ class RequestResponse(BaseModel):
     sent_to: int
     status: str
     created_at: datetime
+    sender_privacy_mode: str = "ANONYMOUS"
+    receiver_privacy_mode: str = "ANONYMOUS"
+    partner_name: Optional[str] = None
+    partner_college: Optional[str] = None
+    partner_phone: Optional[str] = None
+    partner_anonymous_id: Optional[str] = None
+    partner_start: Optional[str] = None
+    partner_end: Optional[str] = None
 
     class Config:
         from_attributes = True

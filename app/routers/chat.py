@@ -71,6 +71,13 @@ async def websocket_endpoint(
             
             event_type = data.get("type", "message")
             receiver_id = data.get("receiverId")
+            
+            if receiver_id is not None:
+                try:
+                    receiver_id = int(receiver_id)
+                except (ValueError, TypeError):
+                    await websocket.send_json({"error": "Invalid receiverId format"})
+                    continue
 
             # Handle typing event
             if event_type == "typing":

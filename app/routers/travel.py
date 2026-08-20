@@ -337,7 +337,8 @@ def send_trip_request(
         receiver_travel_id=request_data.receiver_trip_id,
         sent_by=current_user.user_id,
         sent_to=target_trip.user_id,
-        status="pending"
+        status="pending",
+        sender_privacy_mode=request_data.privacy_mode.upper() if request_data.privacy_mode else "ANONYMOUS"
     )
 
     db.add(new_request)
@@ -351,16 +352,56 @@ def get_my_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    received = db.query(Request).filter(Request.sent_to == current_user.user_id, Request.is_active == True).all()
-    sent = db.query(Request).filter(Request.sent_by == current_user.user_id, Request.is_active == True).all()
+    received_reqs = db.query(Request).filter(
+        Request.sent_to == current_user.user_id,
+        Request.is_active == True,
+        Request.status.in_(["pending", "accepted"])
+    ).all()
+    
+    sent_reqs = db.query(Request).filter(
+        Request.sent_by == current_user.user_id,
+        Request.is_active == True,
+        Request.status.in_(["pending", "accepted"])
+    ).all()
+
+    def enrich_request(req, is_received):
+        partner_id = req.sent_by if is_received else req.sent_to
+        partner_travel_id = req.sender_travel_id if is_received else req.receiver_travel_id
+        partner_user = db.query(User).filter(User.user_id == partner_id).first()
+        partner_travel = db.query(Travel).filter(Travel.travel_id == partner_travel_id).first()
+        
+        partner_college = None
+        if partner_user and partner_user.college_id:
+            from app.models.college import College
+            college = db.query(College).filter(College.college_id == partner_user.college_id).first()
+            if college:
+                partner_college = college.college_name
+
+        return {
+            "request_id": req.request_id,
+            "sender_travel_id": req.sender_travel_id,
+            "receiver_travel_id": req.receiver_travel_id,
+            "sent_by": req.sent_by,
+            "sent_to": req.sent_to,
+            "status": req.status,
+            "created_at": req.created_at,
+            "sender_privacy_mode": req.sender_privacy_mode,
+            "receiver_privacy_mode": req.receiver_privacy_mode,
+            "partner_name": partner_user.name if partner_user else None,
+            "partner_college": partner_college,
+            "partner_phone": partner_user.phone_no if partner_user else None,
+            "partner_anonymous_id": partner_user.anonymous_id if partner_user else None,
+            "partner_start": partner_travel.start_label if partner_travel else None,
+            "partner_end": partner_travel.end_label if partner_travel else None,
+        }
     
     return {
-        "received": received,
-        "sent": sent
+        "received": [enrich_request(r, True) for r in received_reqs],
+        "sent": [enrich_request(r, False) for r in sent_reqs]
     }
 
 
-@router.put("/request/{request_id}")  # Accepts or rejects a request.
+@router.put("/request/{request_id}")  # Accepts, rejects, or cancels a request.
 def respond_to_request(
     request_id: int,
     update_data: RequestUpdate,
@@ -375,16 +416,30 @@ def respond_to_request(
     if req.status != "pending":
         raise HTTPException(status_code=400, detail="This request has already been resolved")
 
-    if req.sent_to != current_user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to respond to this request")
+    status_lower = update_data.status.lower()
+
+    if status_lower in ["cancelled", "canceled"]:
+        if current_user.user_id not in [req.sent_by, req.sent_to]:
+            raise HTTPException(status_code=403, detail="Not authorized to cancel this request")
+        req.status = "cancelled"
+        req.is_active = False
+    elif status_lower in ["rejected", "declined"]:
+        if current_user.user_id not in [req.sent_by, req.sent_to]:
+            raise HTTPException(status_code=403, detail="Not authorized to decline this request")
+        req.status = "rejected"
+        req.is_active = False
+    elif status_lower == "accepted":
+        if req.sent_to != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to accept this request")
+        req.status = "accepted"
+        if update_data.privacy_mode:
+            req.receiver_privacy_mode = update_data.privacy_mode.upper()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid status. Use 'accepted', 'rejected', or 'cancelled'")
         
-    if update_data.status not in ["accepted", "rejected"]:
-        raise HTTPException(status_code=400, detail="Invalid status. Use 'accepted' or 'rejected'")
-        
-    req.status = update_data.status
     db.commit()
     
-    return {"message": f"Request {update_data.status}"}
+    return {"message": f"Request {req.status}"}
 
 
 @router.post("/end")
